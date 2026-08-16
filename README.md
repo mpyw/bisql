@@ -365,7 +365,7 @@ valid for the target database.
 | `true` / `false` literals       | PostgreSQL, MySQL. Not supported by older SQL Server or Oracle; use `1 = 1` / `1 = 0`. |
 | `IN (...)` placeholder expansion| Universal.                                                              |
 | `= ANY($1::type[])` array bind  | PostgreSQL only (requires a native array type and driver support).      |
-| `order by null`                 | MySQL, PostgreSQL. SQL Server requires `order by (select null)`.        |
+| `order by null` (no-op sort)    | MySQL, PostgreSQL, Oracle. SQL Server rejects a bare constant in `ORDER BY`; use `order by (select null)`. |
 
 Placeholders themselves are generated per dialect and are selected with `WithDialect`:
 
