@@ -138,14 +138,25 @@ The complete set of obligations is specified in [Authoring rules](#authoring-rul
 
 ## Directives
 
+### SQL directives
+
+These directives are evaluated during rendering and produce the SQL and its arguments.
+
 | Syntax                                              | Meaning                                                                                     |
 |:----------------------------------------------------|:--------------------------------------------------------------------------------------------|
 | `/* expr */literal`                                 | **Bind.** Emits a placeholder and binds the evaluated value; `literal` is the two-way test value. |
 | `/*^ expr */literal`                                | **Literal.** Inlines the evaluated value as a SQL literal (for review output and DDL; injection-prone). |
 | `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/`  | Conditional selection of a single branch.                                                   |
 | `/*%for x in xs*/ … /*%end*/`                       | Iteration over an iterable; exposes `x_index` and `x_has_next`.                             |
-| `/*%! … */`                                         | Parser comment; removed from the output. Also hosts the `@include` preprocessor directive. |
-| `/*%! @include name */`                             | Preprocessor directive; splices a registered fragment (see [Fragment inclusion](#fragment-inclusion)). |
+
+### Preprocessor directives
+
+These directives share the `/*%! … */` channel and are resolved before lexing.
+
+| Syntax                    | Meaning                                                                                     |
+|:--------------------------|:--------------------------------------------------------------------------------------------|
+| `/*%! @include name */`   | **Include.** Splices the named fragment's text before lexing (see [Fragment inclusion](#fragment-inclusion)). |
+| `/*%! … */`               | **Parser comment.** Removed from the output; carries no SQL.                                |
 
 All other comment forms — block comments (`/** … */`), line comments (`-- …`), and optimizer
 hints (`/*+ … */`) — pass through to the output unchanged.
