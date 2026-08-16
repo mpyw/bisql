@@ -54,7 +54,7 @@ The engine cleans nothing, so templates must anchor:
 ## Package layout (fine-grained on purpose)
 
 ```
-bisql            (root) NewParser / Parser / Parse / Expand / Template / Statement / Option
+bisql            (root) NewParser / Parser / Parse / ParseFile / Expand / ExpandFile / Template / Statement / Option
                  include: Loader interface + RegistryLoader / FSLoader / LoaderFunc / WithLoader
 dialect/         Dialect, Placeholder, Literal, MySQL/PostgreSQL/Oracle/SQLServer
 expr/            Evaluator interface, Scope (public: callers can plug their own)

@@ -112,9 +112,12 @@ type Loader interface {
 
 bisql provides `RegistryLoader` (in-memory), `FSLoader` (over an `fs.FS`), and a `LoaderFunc`
 adapter. There is no default loader. `Parse` wires the configured loader into the preprocessor,
-and `Expand` returns the expanded text for snapshots and pre-execution inspection. Because the
-directive is carried on the parser-comment channel, a template that references a fragment still
-executes verbatim in a client, without the fragment.
+and `Expand` returns the expanded text for snapshots and pre-execution inspection. `ParseFile`
+and `ExpandFile` read the root template from an `fs.FS` and, when no loader is configured
+explicitly, default the include loader to an `FSLoader` over that same `fs.FS`, so that the
+root template and its fragments reside in one file tree. Because the directive is carried on
+the parser-comment channel, a template that references a fragment still executes verbatim in a
+client, without the fragment.
 
 ## Expression evaluation
 

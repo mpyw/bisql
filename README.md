@@ -8,49 +8,84 @@ defined by bisql's **explicit model**, described in [The explicit model](#the-ex
 
 ## Synopsis
 
+Templates are ordinary `.sql` files, and reusable fragments are separate `.sql` files
+composed with `@include`. A template file is loaded with `ParseFile` from any `fs.FS` — for
+example an embedded file system — and included fragments are resolved from the same file
+system.
+
+```text
+sql/
+└── employees/
+    ├── search.sql     root template
+    └── _active.sql    reusable fragment
+```
+
+```sql
+-- sql/employees/search.sql
+select emp_no, name
+from employees
+where 1 = 1
+/*%if name != null*/and name = /*name*/'SCOTT'/*%end*/
+/*%! @include employees/_active.sql */
+order by emp_no
+```
+
+```sql
+-- sql/employees/_active.sql
+/*%if activeOnly*/and retired = /*zero*/0/*%end*/
+```
+
 ```go
 package main
 
 import (
+	"embed"
 	"fmt"
+	"io/fs"
 
 	"github.com/mpyw/bisql"
 	"github.com/mpyw/bisql/dialect"
 )
 
-func main() {
-	const src = `select emp_no, name from employees
-where 1 = 1
-/*%if name != null*/and name = /*name*/'SCOTT'/*%end*/
-/*%if minAge != null*/and age >= /*minAge*/20/*%end*/
-order by emp_no`
+//go:embed sql
+var sqlFiles embed.FS
 
-	tmpl, err := bisql.Parse(src, bisql.WithDialect(dialect.PostgreSQL))
+func main() {
+	sqlFS, _ := fs.Sub(sqlFiles, "sql")
+
+	tmpl, err := bisql.ParseFile(sqlFS, "employees/search.sql",
+		bisql.WithDialect(dialect.PostgreSQL))
 	if err != nil {
 		panic(err)
 	}
 
-	stmt, err := tmpl.Build(map[string]any{"name": "SCOTT", "minAge": 20})
+	stmt, err := tmpl.Build(map[string]any{
+		"name":       "SCOTT",
+		"activeOnly": true,
+		"zero":       0,
+	})
 	if err != nil {
 		panic(err)
 	}
 
 	fmt.Println(stmt.SQL)  // parameterized form; execute this
-	fmt.Println(stmt.Args) // []any{"SCOTT", 20}
+	fmt.Println(stmt.Args) // []any{"SCOTT", 0}
 }
 ```
 
 The resulting statement is:
 
 ```sql
-select emp_no, name from employees
+select emp_no, name
+from employees
 where 1 = 1
 and name = $1
-and age >= $2
+and retired = $2
 order by emp_no
 ```
 
-A `Statement` exposes the following members:
+A template that is available as a string, rather than a file, is parsed with `bisql.Parse`
+instead of `bisql.ParseFile`. A `Statement` exposes the following members:
 
 | Member            | Type     | Description                                                                       |
 |:------------------|:---------|:----------------------------------------------------------------------------------|
@@ -195,14 +230,27 @@ type Loader interface {
 }
 ```
 
-Three implementations are provided. There is **no default**; a template that uses `@include`
-must be parsed with a loader supplied through `WithLoader`.
+Fragment resolution is delegated to an implementation of the `Loader` interface. Three
+implementations are provided. There is **no default**; a template that uses `@include` must be
+parsed with a loader.
 
-| Implementation      | Constructor                    | Source                                              |
-|:--------------------|:-------------------------------|:----------------------------------------------------|
-| `RegistryLoader`    | `bisql.NewRegistry()`          | In-memory fragments registered by name.             |
-| `FSLoader`          | `bisql.NewFSLoader(fs.FS)`     | Files in an `fs.FS` (`embed.FS`, `os.DirFS`, …); the `@include` name is the file path. |
-| `LoaderFunc`        | `bisql.LoaderFunc(fn)`         | An adapter over any resolution function.            |
+| Implementation   | Constructor                 | Source                                              |
+|:-----------------|:----------------------------|:----------------------------------------------------|
+| `RegistryLoader` | `bisql.NewRegistry()`       | In-memory fragments registered by name.             |
+| `FSLoader`       | `bisql.NewFSLoader(fs.FS)`  | Files in an `fs.FS` (`embed.FS`, `os.DirFS`, …); the `@include` name is the file path from the root of the `fs.FS`. |
+| `LoaderFunc`     | `bisql.LoaderFunc(fn)`      | An adapter over any resolution function.            |
+
+`ParseFile` (see [Synopsis](#synopsis)) is the file-oriented entry point: it reads the root
+template from an `fs.FS` and, unless a loader is configured explicitly, resolves `@include`
+fragments from the same `fs.FS`. It is therefore equivalent to the following, which is the
+form to use when the root template is a string rather than a file:
+
+```go
+loader := bisql.NewFSLoader(sqlFS)
+tmpl, err := bisql.Parse(rootSrc, bisql.WithLoader(loader))
+```
+
+Fragments may also be provided in memory rather than as files:
 
 ```go
 loader := bisql.NewRegistry().
@@ -214,12 +262,12 @@ tmpl, err := bisql.Parse(
 )
 ```
 
-The `Expand` function performs only the inclusion step and returns the fully expanded,
-still-two-way template text, which is useful for snapshots and for pre-execution inspection
-with `EXPLAIN`:
+The `Expand` and `ExpandFile` functions perform only the inclusion step and return the fully
+expanded, still-two-way template text, which is useful for snapshots and for pre-execution
+inspection with `EXPLAIN`:
 
 ```go
-expanded, err := bisql.Expand(src, bisql.WithLoader(loader))
+expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
 ```
 
 ## Configuration reuse
@@ -344,8 +392,9 @@ replaceable through `WithEvaluator`.
 ## Package layout
 
 ```text
-bisql            Public API: NewParser, Parser, Parse, Expand, Template, Statement, Option,
-                 and fragment loaders (Loader, RegistryLoader, FSLoader, LoaderFunc, WithLoader).
+bisql            Public API: NewParser, Parser, Parse, ParseFile, Expand, ExpandFile,
+                 Template, Statement, Option, and fragment loaders
+                 (Loader, RegistryLoader, FSLoader, LoaderFunc, WithLoader).
 dialect/         Dialect definitions: placeholder generation and literal formatting
                  (MySQL, PostgreSQL, Oracle, SQL Server).
 expr/            Evaluator interface and Scope (for custom evaluators).

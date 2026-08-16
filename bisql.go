@@ -2,6 +2,7 @@ package bisql
 
 import (
 	"fmt"
+	"io/fs"
 	"reflect"
 	"strings"
 
@@ -129,6 +130,39 @@ func (p *Parser) Expand(src string) (string, error) {
 	return preprocess.Expand(src, p.c.resolver())
 }
 
+// ParseFile reads the template named by name from fsys and parses it. Unless the parser was
+// configured with an explicit loader, /*%! @include ... */ directives are resolved from the
+// same fsys (as an FSLoader), so the root template and its fragments live together in one
+// file tree; include names are paths relative to the root of fsys.
+func (p *Parser) ParseFile(fsys fs.FS, name string) (*Template, error) {
+	src, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return nil, fmt.Errorf("bisql: reading template %q: %w", name, err)
+	}
+	return p.forFS(fsys).Parse(string(src))
+}
+
+// ExpandFile reads the template named by name from fsys and returns its expanded text (see
+// Expand and ParseFile).
+func (p *Parser) ExpandFile(fsys fs.FS, name string) (string, error) {
+	src, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return "", fmt.Errorf("bisql: reading template %q: %w", name, err)
+	}
+	return p.forFS(fsys).Expand(string(src))
+}
+
+// forFS returns a parser whose loader defaults to an FSLoader over fsys when none was
+// configured, leaving an explicitly-set loader untouched. The receiver is not mutated.
+func (p *Parser) forFS(fsys fs.FS) *Parser {
+	if p.c.loader != nil {
+		return p
+	}
+	c := p.c
+	c.loader = NewFSLoader(fsys)
+	return &Parser{c: c}
+}
+
 // Parse is a shortcut for NewParser(opts...).Parse(src); use NewParser to reuse one
 // configuration across many templates.
 func Parse(src string, opts ...Option) (*Template, error) {
@@ -138,6 +172,16 @@ func Parse(src string, opts ...Option) (*Template, error) {
 // Expand is a shortcut for NewParser(opts...).Expand(src).
 func Expand(src string, opts ...Option) (string, error) {
 	return NewParser(opts...).Expand(src)
+}
+
+// ParseFile is a shortcut for NewParser(opts...).ParseFile(fsys, name).
+func ParseFile(fsys fs.FS, name string, opts ...Option) (*Template, error) {
+	return NewParser(opts...).ParseFile(fsys, name)
+}
+
+// ExpandFile is a shortcut for NewParser(opts...).ExpandFile(fsys, name).
+func ExpandFile(fsys fs.FS, name string, opts ...Option) (string, error) {
+	return NewParser(opts...).ExpandFile(fsys, name)
 }
 
 // Build assembles (SQL, Args) from the given parameters, which may be a map[string]any,

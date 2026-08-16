@@ -432,3 +432,46 @@ func TestSQLWithArgsLazy(t *testing.T) {
 		t.Errorf("no-bind SQLWithArgs = %q, want %q", got, ps.SQL)
 	}
 }
+
+// ParseFile reads the root template from an fs.FS and, with no explicit loader, resolves its
+// @include fragments from the same fs.FS. This mirrors the README synopsis.
+func TestParseFile(t *testing.T) {
+	fsys := fstest.MapFS{
+		"employees/search.sql": {Data: []byte(
+			"select emp_no, name\nfrom employees\nwhere 1 = 1\n" +
+				"/*%if name != null*/and name = /*name*/'SCOTT'/*%end*/\n" +
+				"/*%! @include employees/_active.sql */\n" +
+				"order by emp_no")},
+		"employees/_active.sql": {Data: []byte(
+			"/*%if activeOnly*/and retired = /*zero*/0/*%end*/")},
+	}
+	tmpl, err := bisql.ParseFile(fsys, "employees/search.sql", bisql.WithDialect(dialect.PostgreSQL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tmpl.Build(map[string]any{"name": "SCOTT", "activeOnly": true, "zero": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "select emp_no, name\nfrom employees\nwhere 1 = 1\nand name = $1\nand retired = $2\norder by emp_no"
+	if stmt.SQL != want {
+		t.Errorf("SQL\n got: %q\nwant: %q", stmt.SQL, want)
+	}
+	if !reflect.DeepEqual(stmt.Args, []any{"SCOTT", 0}) {
+		t.Errorf("Args = %#v", stmt.Args)
+	}
+
+	// A missing file is a read error, not a parse error.
+	if _, err := bisql.ParseFile(fsys, "nope.sql"); err == nil {
+		t.Error("missing file should error")
+	}
+
+	// ExpandFile returns the still-two-way text with the fragment spliced in.
+	expanded, err := bisql.ExpandFile(fsys, "employees/search.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(expanded, "/*%if activeOnly*/and retired = /*zero*/0/*%end*/") {
+		t.Errorf("ExpandFile did not splice the fragment:\n%s", expanded)
+	}
+}
