@@ -21,11 +21,11 @@ Build up milestone by milestone, locking behavior with tests. Each milestone kee
 Note: added `token.Illegal` + `Lexer.Err()` for lexing errors; `Location` reports the
 start of each token (bisql convention; Komapper reports the post-consume position).
 
-## M2: parser
+## M2: parser ✅
 
-- [ ] `internal/sqltmpl/parser` (reducer-stack strategy)
-- [ ] fold clauses/operators, recurse into `(...)`, set operations, if/for/with blocks
-- [ ] `parser_test.go` (assert `ast.Text()` reproduces the input = lossless)
+- [x] `internal/sqltmpl/parser` (reducer-stack strategy)
+- [x] fold clauses/operators, recurse into `(...)`, set operations, if/for/with blocks
+- [x] `parser_test.go` (asserts `ast.Text()` reproduces the input = lossless; ported from `SqlParserTest`)
 
 ## M3: default expression evaluator
 
