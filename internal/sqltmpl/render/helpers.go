@@ -29,18 +29,6 @@ func asIterable(v any) ([]any, bool) {
 	}
 }
 
-// toStr renders v for an embedded value directive: nil becomes the empty string, otherwise
-// the default Go formatting.
-func toStr(v any) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return fmt.Sprintf("%v", v)
-}
-
 // membersOf extracts the properties of v (exported struct fields or string-keyed map
 // entries) for a with block.
 func membersOf(v any) (map[string]any, error) {

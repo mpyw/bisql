@@ -7,7 +7,6 @@ import (
 )
 
 // reducer accumulates child nodes and folds them into a single ast.Node.
-// Ported from Komapper's SqlReducer hierarchy.
 type reducer interface {
 	add(ast.Node)
 	reduce() (ast.Node, error)
@@ -28,48 +27,6 @@ type statementReducer struct{ nodes []ast.Node }
 
 func (r *statementReducer) add(n ast.Node)            { r.nodes = append(r.nodes, n) }
 func (r *statementReducer) reduce() (ast.Node, error) { return ast.Statement{Nodes: r.nodes}, nil }
-
-type setReducer struct {
-	loc     ast.Location
-	keyword string
-	left    ast.Node
-	nodes   []ast.Node
-}
-
-func (r *setReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *setReducer) reduce() (ast.Node, error) {
-	if len(r.nodes) == 0 {
-		return nil, fmt.Errorf("bisql/parser: the right operand of a set operation is not found")
-	}
-	right := r.nodes[0]
-	// Any trailing nodes belong to the right statement already (it was reduced whole);
-	// setReducer only ever receives one statement node.
-	return ast.Set{Loc: r.loc, Keyword: r.keyword, Left: r.left, Right: right}, nil
-}
-
-type clauseReducer struct {
-	loc     ast.Location
-	kind    ast.ClauseKind
-	keyword string
-	nodes   []ast.Node
-}
-
-func (r *clauseReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *clauseReducer) reduce() (ast.Node, error) {
-	return ast.Clause{Loc: r.loc, Kind: r.kind, Keyword: r.keyword, Nodes: r.nodes}, nil
-}
-
-type logicalReducer struct {
-	loc     ast.Location
-	kind    ast.LogicalKind
-	keyword string
-	nodes   []ast.Node
-}
-
-func (r *logicalReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *logicalReducer) reduce() (ast.Node, error) {
-	return ast.Logical{Loc: r.loc, Kind: r.kind, Keyword: r.keyword, Nodes: r.nodes}, nil
-}
 
 type bindReducer struct {
 	loc   ast.Location

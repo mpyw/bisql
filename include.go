@@ -5,26 +5,20 @@ import (
 	"io/fs"
 	"path"
 	"strings"
-	"sync"
 
-	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 	"github.com/mpyw/bisql/internal/sqltmpl/parser"
+	"github.com/mpyw/bisql/internal/sqltmpl/preprocess"
 )
 
-// Loader manages the fragments referenced by partials (/*> name */).
+// Loader manages the fragments referenced by @include directives.
 //
-// bisql resolves a partial by re-parsing the named fragment into nodes and splicing it into
-// the tree recursively, so /*%if*/, binds, and nested partials/embeds inside the fragment
-// all work. This is the same recursive-expansion machinery embedded values (/*# */) use;
-// the only difference is the source — a static, registered fragment here vs. a runtime
-// scope expression for an embedded value. See docs/design.md ("include design").
-//
-// Register the fragments up front (via Register or LoadFS), then call Parse; the resulting
-// Template is immutable and safe for concurrent Build calls.
+// An /*%! @include name */ directive is expanded textually (before lexing) into the named
+// fragment's raw text, recursively — a preprocessing step that yields a fully expanded,
+// still-2-way template. Register the fragments up front (Register / LoadFS), then Parse.
+// The resulting Template is immutable and safe for concurrent Build calls.
 type Loader struct {
 	cfg       config
 	fragments map[string]string
-	cache     sync.Map // name -> ast.Node (parsed fragment)
 }
 
 // NewLoader creates a Loader.
@@ -36,7 +30,7 @@ func NewLoader(opts ...Option) *Loader {
 	return &Loader{cfg: c, fragments: map[string]string{}}
 }
 
-// Register registers a named fragment template.
+// Register registers a named fragment.
 func (l *Loader) Register(name, template string) { l.fragments[name] = template }
 
 // LoadFS loads files matching glob from fsys and registers each under its path with the
@@ -57,35 +51,29 @@ func (l *Loader) LoadFS(fsys fs.FS, glob string) error {
 	return nil
 }
 
-// resolve parses (and caches) the named fragment into its tree. Partials nested inside a
-// fragment are left as Partial nodes and resolved lazily at render time, where cycle
-// detection lives.
-func (l *Loader) resolve(name string) (ast.Node, error) {
-	if n, ok := l.cache.Load(name); ok {
-		return n.(ast.Node), nil
-	}
+func (l *Loader) resolve(name string) (string, error) {
 	src, ok := l.fragments[name]
 	if !ok {
-		return nil, fmt.Errorf("bisql: unknown partial %q", name)
+		return "", fmt.Errorf("bisql: unknown @include fragment %q", name)
 	}
-	n, err := parser.Parse(src)
-	if err != nil {
-		return nil, fmt.Errorf("bisql: parsing partial %q: %w", name, err)
-	}
-	actual, _ := l.cache.LoadOrStore(name, n)
-	return actual.(ast.Node), nil
+	return src, nil
 }
 
-// Parse parses a template, wiring partial resolution against this Loader's fragments.
+// Expand runs the @include preprocessor and returns the fully expanded template text (the
+// resolved, still-2-way SQL). Useful to snapshot or run through EXPLAIN ahead of time.
+func (l *Loader) Expand(src string) (string, error) {
+	return preprocess.Expand(src, l.resolve)
+}
+
+// Parse expands @include directives against this Loader's fragments, then parses.
 func (l *Loader) Parse(src string) (*Template, error) {
-	root, err := parser.Parse(src)
+	expanded, err := preprocess.Expand(src, l.resolve)
 	if err != nil {
 		return nil, err
 	}
-	return &Template{
-		root:      root,
-		dialect:   l.cfg.dialect,
-		evaluator: l.cfg.evaluator,
-		resolve:   l.resolve,
-	}, nil
+	root, err := parser.Parse(expanded)
+	if err != nil {
+		return nil, err
+	}
+	return &Template{root: root, dialect: l.cfg.dialect, evaluator: l.cfg.evaluator}, nil
 }

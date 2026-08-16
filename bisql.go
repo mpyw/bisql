@@ -9,6 +9,7 @@ import (
 	"github.com/mpyw/bisql/internal/exprlang"
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 	"github.com/mpyw/bisql/internal/sqltmpl/parser"
+	"github.com/mpyw/bisql/internal/sqltmpl/preprocess"
 	"github.com/mpyw/bisql/internal/sqltmpl/render"
 )
 
@@ -17,9 +18,6 @@ type Template struct {
 	root      ast.Node
 	dialect   dialect.Dialect
 	evaluator expr.Evaluator
-	// resolve resolves partials (/*> name */) to their parsed trees; nil when the template
-	// was produced by Parse (no Loader) so any partial is an error.
-	resolve func(name string) (ast.Node, error)
 }
 
 // Statement is the result of Build.
@@ -51,18 +49,27 @@ func WithDialect(d dialect.Dialect) Option { return func(c *config) { c.dialect 
 // WithEvaluator swaps the expression evaluator (default: the built-in one).
 func WithEvaluator(e expr.Evaluator) Option { return func(c *config) { c.evaluator = e } }
 
-// Parse parses a template string. Use Loader.Parse when the template uses partials
-// (/*> name */).
+// Parse parses a template string. Use Loader.Parse when the template uses @include
+// directives; a bare Parse rejects any /*%! @include ... */ (there are no fragments to
+// resolve).
 func Parse(src string, opts ...Option) (*Template, error) {
 	c := defaultConfig()
 	for _, o := range opts {
 		o(&c)
 	}
-	root, err := parser.Parse(src)
+	expanded, err := preprocess.Expand(src, noLoaderResolve)
+	if err != nil {
+		return nil, err
+	}
+	root, err := parser.Parse(expanded)
 	if err != nil {
 		return nil, err
 	}
 	return &Template{root: root, dialect: c.dialect, evaluator: c.evaluator}, nil
+}
+
+func noLoaderResolve(name string) (string, error) {
+	return "", fmt.Errorf("bisql: @include %q requires a Loader (use bisql.NewLoader and Register the fragment)", name)
 }
 
 // Build assembles (SQL, Args) from the given parameters, which may be a map[string]any,
@@ -76,7 +83,6 @@ func (t *Template) Build(params any) (Statement, error) {
 		Evaluator:   t.evaluator,
 		Placeholder: t.dialect.Placeholder(),
 		Literal:     t.dialect.Literal(),
-		Resolve:     t.resolve,
 	})
 	if err != nil {
 		return Statement{}, err

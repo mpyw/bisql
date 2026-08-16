@@ -1,6 +1,8 @@
-// Package parser builds the shallow structural tree from a SQL template, using a
-// reducer-stack strategy to fold clauses, operators, and blocks
-// (ported from Komapper's SqlParser; see docs/komapper-analysis.md).
+// Package parser builds the template tree from a SQL template using a reducer-stack
+// strategy for the block directives (if/for/with) and the bind/literal test literals.
+//
+// It does not parse SQL as a grammar and recognizes no clauses or connectors: everything
+// that is not a directive or comment is opaque text (Word / Other / Space / Eol / Paren).
 package parser
 
 import (
@@ -13,10 +15,9 @@ import (
 	"github.com/mpyw/bisql/internal/sqltmpl/token"
 )
 
-// Parse turns a template string into the shallow structural tree. bisql parses a single
-// statement: a delimiter (;) terminates it, and the delimiter plus anything after it are
-// discarded (matching Komapper's SqlParser). The result satisfies node.Text() == src,
-// except that parser-level comments (/*%! ... */) and a trailing delimiter are dropped.
+// Parse turns a template string into the template tree. The result satisfies
+// node.Text() == src, except that parser-level comments (/*%! ... */) and a trailing
+// delimiter (;) are dropped.
 func Parse(src string) (ast.Node, error) {
 	p := &parser{lex: lexer.New(src)}
 	p.push(&statementReducer{})
@@ -93,33 +94,6 @@ func (p *parser) parse() (ast.Node, error) {
 			p.pushNode(ast.Eol{Token: p.tok})
 		case token.MultiLineComment, token.SingleLineComment:
 			p.pushNode(ast.Comment{Token: p.tok})
-		case token.Select:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseSelect, keyword: p.tok})
-		case token.From:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseFrom, keyword: p.tok})
-		case token.Where:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseWhere, keyword: p.tok})
-		case token.Having:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseHaving, keyword: p.tok})
-		case token.GroupBy:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseGroupBy, keyword: p.tok})
-		case token.OrderBy:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseOrderBy, keyword: p.tok})
-		case token.ForUpdate:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseForUpdate, keyword: p.tok})
-		case token.Option:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseOption, keyword: p.tok})
-		case token.And:
-			p.push(&logicalReducer{loc: p.loc, kind: ast.LogicalAnd, keyword: p.tok})
-		case token.Or:
-			p.push(&logicalReducer{loc: p.loc, kind: ast.LogicalOr, keyword: p.tok})
-		case token.Union, token.Except, token.Minus, token.Intersect:
-			node, err := p.reduceAll()
-			if err != nil {
-				return nil, err
-			}
-			p.push(&setReducer{loc: p.loc, keyword: p.tok, left: node})
-			p.push(&statementReducer{})
 		case token.BindValue:
 			if err := p.parseBind(); err != nil {
 				return nil, err
@@ -128,18 +102,6 @@ func (p *parser) parse() (ast.Node, error) {
 			if err := p.parseLiteral(); err != nil {
 				return nil, err
 			}
-		case token.EmbeddedValue:
-			expr := strip(p.tok, "/*#", "*/")
-			if expr == "" {
-				return nil, p.errf("expression is not found in the embedded value directive")
-			}
-			p.pushNode(ast.EmbeddedValue{Loc: p.loc, Token: p.tok, Expression: expr})
-		case token.Partial:
-			name := strip(p.tok, "/*>", "*/")
-			if name == "" {
-				return nil, p.errf("expression is not found in the partial directive")
-			}
-			p.pushNode(ast.Partial{Loc: p.loc, Token: p.tok, Name: name})
 		case token.If:
 			if err := p.parseIf(); err != nil {
 				return nil, err

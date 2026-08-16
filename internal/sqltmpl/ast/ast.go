@@ -1,6 +1,8 @@
-// Package ast is the shallow structural tree of a SQL template. Ported from Komapper's
-// SqlNode. Every node reproduces its original text via Text() (lossless); parser tests
-// assert that Text() reproduces the input.
+// Package ast is the template tree. Since the explicit-model redesign the tree carries no
+// clause/connector structure (bisql removes nothing implicitly): it is opaque text and leaf
+// tokens interspersed with directives (bind, literal, embedded, if/for/with) and comments.
+// Every node reproduces its original text via Text() (lossless); parser tests assert that
+// Text() reproduces the input.
 package ast
 
 // Node is a node of the template tree.
@@ -16,68 +18,17 @@ type Location struct {
 
 // --- structural nodes ---
 
-// Statement is the whole template, or one side of a parenthesized/set-operation subtree.
+// Statement is the whole template, or the contents of a parenthesized group.
 type Statement struct{ Nodes []Node }
 
 func (n Statement) Text() string { return join(n.Nodes) }
 
-// Set is UNION / EXCEPT / MINUS / INTERSECT.
-type Set struct {
-	Loc     Location
-	Keyword string
-	Left    Node
-	Right   Node
-}
-
-func (n Set) Text() string { return n.Left.Text() + n.Keyword + n.Right.Text() }
-
-// Paren is a parenthesized group (...).
+// Paren is a parenthesized group (...). It carries no special semantics; it exists so a
+// bind directive's test value can be a group (which drives IN-list expansion) and so
+// subqueries reproduce losslessly.
 type Paren struct{ Node Node }
 
 func (n Paren) Text() string { return "(" + n.Node.Text() + ")" }
-
-// ClauseKind is the kind of clause.
-type ClauseKind int
-
-const (
-	ClauseSelect ClauseKind = iota
-	ClauseFrom
-	ClauseWhere
-	ClauseHaving
-	ClauseGroupBy
-	ClauseOrderBy
-	ClauseForUpdate
-	ClauseOption
-)
-
-// Clause is a SQL clause. The renderer drops it when its body becomes empty
-// (except Select/From/ForUpdate).
-type Clause struct {
-	Loc     Location
-	Kind    ClauseKind
-	Keyword string
-	Nodes   []Node
-}
-
-func (n Clause) Text() string { return n.Keyword + join(n.Nodes) }
-
-// LogicalKind is AND / OR.
-type LogicalKind int
-
-const (
-	LogicalAnd LogicalKind = iota
-	LogicalOr
-)
-
-// Logical is AND / OR. The renderer emits the keyword only when preceding content exists.
-type Logical struct {
-	Loc     Location
-	Kind    LogicalKind
-	Keyword string
-	Nodes   []Node
-}
-
-func (n Logical) Text() string { return n.Keyword + join(n.Nodes) }
 
 // --- blocks and directives ---
 
@@ -168,7 +119,10 @@ type WithDirective struct {
 
 func (n WithDirective) Text() string { return n.Token + join(n.Nodes) }
 
-// BindValue is /* expr */literal. Test is the test literal (a Word or Paren).
+// BindValue is /* expr */literal. Test is the test literal (a Word or Paren) that follows;
+// it keeps the raw template runnable and is replaced at build time by a placeholder — or,
+// when Test is a Paren, by an expanded IN list. Trailing is any content that folded in
+// after the test literal (e.g. a "::cast").
 type BindValue struct {
 	Loc        Location
 	Token      string
@@ -190,28 +144,7 @@ type LiteralValue struct {
 
 func (n LiteralValue) Text() string { return n.Token + n.Test.Text() + join(n.Trailing) }
 
-// EmbeddedValue is /*# expr */. bisql evaluates the expression to a string, then re-parses
-// and splices it recursively (unlike Komapper's raw-text embed). The text is data, so only
-// trusted values should flow through it. Its static counterpart is Partial (/*> name */).
-type EmbeddedValue struct {
-	Loc        Location
-	Token      string
-	Expression string
-}
-
-func (n EmbeddedValue) Text() string { return n.Token }
-
-// Partial is /*> name */ (Komapper-compatible). bisql resolves it as an include: the named
-// fragment is re-parsed into nodes and spliced in, so /*%if*/ and binds inside work.
-type Partial struct {
-	Loc   Location
-	Token string
-	Name  string
-}
-
-func (n Partial) Text() string { return n.Token }
-
-// --- leaf tokens ---
+// --- leaf tokens (all opaque; emitted verbatim) ---
 
 type Word struct{ Token string }
 
@@ -225,8 +158,6 @@ type Comment struct{ Token string }
 
 func (n Comment) Text() string { return n.Token }
 
-// Space and Eol are blank nodes: not real SQL body. The renderer buffers them (matching on
-// their concrete types) and does not count them as "available".
 type Space struct{ Token string }
 
 func (n Space) Text() string { return n.Token }
