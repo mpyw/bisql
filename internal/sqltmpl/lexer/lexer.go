@@ -339,8 +339,14 @@ func (l *Lexer) matchOption() (int, bool) {
 	return len("option"), true
 }
 
-// scanWord reads a word, absorbing an embedded '...' string literal if present.
+// scanWord reads a word, absorbing an embedded '...' string literal if present. It is only
+// entered when isWordStart holds, so the first byte is a valid start. A leading sign of a
+// signed number (+/-) is a valid start but not itself a word-part, so it is consumed
+// explicitly; otherwise the loop would break at position 0 and the caller would spin.
 func (l *Lexer) scanWord() token.Kind {
+	if l.pos < len(l.src) && (l.src[l.pos] == '+' || l.src[l.pos] == '-') {
+		l.pos++
+	}
 	for l.pos < len(l.src) {
 		c := l.src[l.pos]
 		if c == '\'' {

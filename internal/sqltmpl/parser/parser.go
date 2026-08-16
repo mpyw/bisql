@@ -13,8 +13,10 @@ import (
 	"github.com/mpyw/bisql/internal/sqltmpl/token"
 )
 
-// Parse turns a template string into the shallow structural tree. The result satisfies
-// node.Text() == src, except that parser-level comments (/*%! ... */) are dropped.
+// Parse turns a template string into the shallow structural tree. bisql parses a single
+// statement: a delimiter (;) terminates it, and the delimiter plus anything after it are
+// discarded (matching Komapper's SqlParser). The result satisfies node.Text() == src,
+// except that parser-level comments (/*%! ... */) and a trailing delimiter are dropped.
 func Parse(src string) (ast.Node, error) {
 	p := &parser{lex: lexer.New(src)}
 	p.push(&statementReducer{})

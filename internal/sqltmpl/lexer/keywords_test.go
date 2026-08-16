@@ -48,6 +48,21 @@ func TestLexer_MultiWordBoundary(t *testing.T) {
 	assertTokens(t, "for", []tk{{token.Word, "for"}})
 }
 
+// A signed number is a word starting with +/-; the sign is consumed with the digits.
+// (Regression: scanWord once broke at the leading sign, spinning forever — found by fuzz.)
+func TestLexer_SignedNumberWord(t *testing.T) {
+	assertTokens(t, "-0", []tk{{token.Word, "-0"}})
+	assertTokens(t, "+5", []tk{{token.Word, "+5"}})
+	assertTokens(t, "a = /*v*/-0", []tk{
+		{token.Word, "a"}, {token.Space, " "}, {token.Other, "="}, {token.Space, " "},
+		{token.BindValue, "/*v*/"}, {token.Word, "-0"},
+	})
+	// A bare '-' not before a digit is an operator (Other), not a word.
+	assertTokens(t, "a - b", []tk{
+		{token.Word, "a"}, {token.Space, " "}, {token.Other, "-"}, {token.Space, " "}, {token.Word, "b"},
+	})
+}
+
 // option is only a keyword when followed by " (" ; otherwise it is a plain word.
 func TestLexer_OptionBoundary(t *testing.T) {
 	assertTokens(t, "option x", []tk{
