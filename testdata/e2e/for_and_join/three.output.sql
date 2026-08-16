@@ -1,2 +1,2 @@
-select * /** all columns */ from t
- where x = ? and x = ? and x = ?  
+select * from t
+where x = ? and x = ? and x = ?  

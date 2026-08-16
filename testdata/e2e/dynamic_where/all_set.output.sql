@@ -1,5 +1,5 @@
-select * /** all columns */ from person
-where 1 = 1
-and name = ?
+select * from person
+where
+ name = ?
 and age > ?
 and id in (?, ?, ?)

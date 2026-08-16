@@ -90,12 +90,11 @@ func runGolden(t *testing.T, template string, cases []goldenCase) {
 	}
 }
 
+// bisql removes an empty WHERE and drops a dangling leading AND natively, so no 1=1 crutch
+// is needed: all conditions written as "and X".
 func TestE2EDynamicWhere(t *testing.T) {
 	runGolden(t, "dynamic_where", []goldenCase{
 		{name: "all_set", params: map[string]any{"name": "SCOTT", "age": 20, "ids": []any{1, 2, 3}}, args: []any{"SCOTT", 20, 1, 2, 3}, embedded: true},
-		{name: "none_set", params: map[string]any{}},
-	})
-	runGolden(t, "dynamic_where_no_idiom", []goldenCase{
 		{name: "age_only", params: map[string]any{"age": 20}, args: []any{20}, embedded: true},
 		{name: "none_set", params: map[string]any{}},
 	})
