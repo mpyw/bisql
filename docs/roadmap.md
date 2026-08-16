@@ -29,29 +29,49 @@ start of each token (bisql convention; Komapper reports the post-consume positio
 
 ## M3: default expression evaluator ✅
 
-- [x] `internal/exprlang`: comparisons, logical ops, literals, property/method, safe call
-- [x] resolve map / struct / methods via reflection
-- [x] `exprlang_test.go`
+Decision (revised): rather than maintain a bespoke expression parser, the default
+evaluator wraps **`github.com/expr-lang/expr`** (the de-facto Go expression language:
+safe, bytecode-compiled, rich — `in`, `len`, optional chaining `a?.b`, nil-coalescing).
+The hand-rolled lexer/eval from the first M3 pass were deleted.
 
-Deviations from Komapper (documented in the package): Kotlin-specific `is`/`as`, class
-references `@FQCN@`, and numeric type suffixes are omitted (they do not map to Go). Plug a
-custom evaluator via `bisql.WithEvaluator` if needed. May split into sub-packages later.
+- [x] `internal/exprlang`: thin wrapper over expr-lang, compile-cached per expression
+- [x] `expr.Evaluator` seam kept — custom/goja backends remain droppable via `WithEvaluator`
+- [x] `exprlang_test.go` (wrapper contract: scope binding, Go-value passthrough, errors)
 
-## M4: renderer (heart of 2-way)
+Notes: the null literal is written `nil` (expr-lang's spelling), but Komapper's
+`x != null` idiom still works unchanged — `null` is an undefined identifier, and
+`AllowUndefinedVariables` resolves undefined identifiers to nil. Expressions live inside
+SQL comments and never reach the DB, so this has no bearing on the 2-way property.
+`exprlang` stays a single package: its types never cross a package boundary, so the
+fine-grained split that pays off in `sqltmpl` (shared `token`/`ast` vocab) would be
+export ceremony here.
 
-- [ ] `internal/sqltmpl/render`: the available-flag evaluator
-- [ ] empty-clause removal, dangling AND/OR removal, blank normalization
-- [ ] bind IN expansion (list / tuple / empty -> `(null)`)
-- [ ] for-loop helper variables
-- [ ] dialect placeholders
-- [ ] unskip the M4 cases in `bisql_test.go` (WHERE removal, dangling AND, IN, if/for)
+## M4: renderer (heart of 2-way) ✅
 
-## M5: include (partial)
+- [x] `internal/sqltmpl/render`: the available-flag evaluator
+- [x] empty-clause removal, dangling AND/OR removal, blank normalization (keep-from-last-EOL)
+- [x] bind IN expansion (list / tuple / empty -> `(null)`)
+- [x] for-loop helper variables (`_index`/`_has_next`/`_next_comma`/`_next_and`/`_next_or`)
+- [x] dialect placeholders + literal formatting (`dialect.FormatLiteral`)
+- [x] unskip the M4 cases in `bisql_test.go` (WHERE removal, dangling AND, IN, if/for) — all green
 
-- [ ] `include.go`: `Loader` (Register / LoadFS)
-- [ ] resolve `/*> name */` by re-parsing and splicing
-- [ ] detect cyclic references and missing fragments
-- [ ] unskip `TestPartialInclude` (fragment-internal `/*%if*/` and binds must work)
+Ported the algorithm directly from Komapper's `TwoWayTemplateStatementBuilder`: clauses
+nest (ORDER BY becomes a child of WHERE), and a dropped clause keeps a nested clause's
+text via `startsWithClause()`, which is what preserves the surrounding whitespace.
+
+## M5: include (partial) + recursive embedded ✅
+
+Design decision: expansion is **recursive** for both `/*> name */` (partial) and
+`/*# expr */` (embedded value), and they are unified on one splice path — differing only
+in source (static loader-registered fragment vs. runtime scope expression). See the
+"Expansion design" section in [`design.md`](./design.md).
+
+- [x] `include.go`: `Loader` (Register / LoadFS), fragment parse-cache, resolver wiring
+- [x] resolve `/*> name */` by re-parsing and splicing (recursive; nested partials work)
+- [x] `/*# expr */` re-parses its runtime string and splices recursively (extends Komapper)
+- [x] shared depth guard (`render.DefaultMaxDepth`) + partial-name cycle detection
+- [x] unskip `TestPartialInclude`; add `TestPartialRecursive`, `TestPartialCycle`,
+      `TestEmbeddedRecursive`
 
 ## M6: finishing
 

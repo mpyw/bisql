@@ -14,6 +14,9 @@ type Template struct {
 	root      ast.Node
 	dialect   dialect.Dialect
 	evaluator expr.Evaluator
+	// resolve resolves partials (/*> name */) to their parsed trees; nil when the template
+	// was produced by Parse (no Loader) so any partial is an error.
+	resolve func(name string) (ast.Node, error)
 }
 
 // Statement is the result of Build.
@@ -36,7 +39,7 @@ type config struct {
 }
 
 func defaultConfig() config {
-	return config{dialect: dialect.MySQL, evaluator: exprlang.Default{}}
+	return config{dialect: dialect.MySQL, evaluator: &exprlang.Default{}}
 }
 
 // WithDialect sets the dialect used for placeholder generation (default: MySQL).
@@ -66,7 +69,12 @@ func (t *Template) Build(params any) (Statement, error) {
 	if err != nil {
 		return Statement{}, err
 	}
-	res, err := render.Render(t.root, scope, t.evaluator, t.dialect.Placeholder())
+	res, err := render.Render(t.root, scope, render.Config{
+		Evaluator:   t.evaluator,
+		Placeholder: t.dialect.Placeholder(),
+		Literal:     t.dialect.Literal(),
+		Resolve:     t.resolve,
+	})
 	if err != nil {
 		return Statement{}, err
 	}

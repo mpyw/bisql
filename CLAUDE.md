@@ -27,9 +27,14 @@ Read first:
   - AND/OR emits its keyword only when preceding content is available (drops dangling
     connectors);
   - blanks (Space/Eol) are buffered and flushed so removed content leaves no stray space.
-- **Include = re-parse and splice.** Resolve `/*> name */` by parsing the fragment into
-  nodes and splicing them in. Never implement it as raw-text embedding (that is Komapper's
-  `/*# */` weakness).
+- **Expansion = re-parse and splice, recursively.** Both `/*> name */` (partial) and
+  `/*# expr */` (embedded value) resolve their content to template text, parse it into
+  nodes, and splice those in — so directives/binds inside expand too, to arbitrary depth.
+  Never fall back to raw-text embedding (that is Komapper's `/*# */` weakness). The two
+  differ only in **source**: a partial names a static, loader-registered fragment; an
+  embedded value evaluates a runtime scope expression (hence an injection surface — only
+  trusted text should flow through it). Shared machinery bounds depth (`DefaultMaxDepth`)
+  and detects partial-name cycles.
 - **Two layers.** Keep the SQL template layer (`internal/sqltmpl`) and the expression
   layer (`internal/exprlang` + public `pkg/expr`) separate.
 
@@ -47,7 +52,7 @@ internal/
     lexer/       Lexer
     parser/      Parse -> ast.Node
     render/      Render (the available-flag evaluator)
-  exprlang/      built-in expression evaluator (split into token/ast/lexer/parser/eval as it grows)
+  exprlang/      default expression evaluator (thin wrapper over github.com/expr-lang/expr)
 pkg/
   dialect/       Dialect, Placeholder, MySQL/PostgreSQL/Oracle/SQLServer
   expr/          Evaluator interface, Scope (public, so callers can plug their own)
@@ -70,8 +75,10 @@ docs/
 
 ## Coding rules
 
-- Prefer the standard library. Keep the default expression evaluator dependency-free; if
-  an external one is ever wanted, it goes behind `bisql.WithEvaluator`, not as a hard dep.
+- Prefer the standard library. The one deliberate exception is the default expression
+  evaluator, which wraps `github.com/expr-lang/expr` (mature, safe, rich) rather than a
+  hand-rolled parser. Everything else stays dependency-free; alternative evaluators
+  (e.g. a goja JS backend) go behind `bisql.WithEvaluator`, never as a hard dep.
 - Public API gets English GoDoc comments.
 - Before committing: `go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./...`.
 - When a change affects behavior, add/update the corresponding test in the same commit.
@@ -79,5 +86,5 @@ docs/
 ## Do not
 
 - Start full SQL grammar parsing (violates the core design).
-- Implement include as raw-text embedding.
+- Implement include or embedded values as raw-text embedding (both re-parse and splice).
 - Leak internal token/ast types through the public API.

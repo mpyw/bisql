@@ -190,7 +190,9 @@ type LiteralValue struct {
 
 func (n LiteralValue) Text() string { return n.Token + n.Test.Text() + join(n.Trailing) }
 
-// EmbeddedValue is /*# expr */ (raw-text embed, not re-parsed; discouraged).
+// EmbeddedValue is /*# expr */. bisql evaluates the expression to a string, then re-parses
+// and splices it recursively (unlike Komapper's raw-text embed). The text is data, so only
+// trusted values should flow through it. Its static counterpart is Partial (/*> name */).
 type EmbeddedValue struct {
 	Loc        Location
 	Token      string

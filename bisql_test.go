@@ -29,7 +29,9 @@ func run(t *testing.T, cases []spec) {
 	t.Helper()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Skipf("pending %s", c.milestone)
+			if c.milestone != "M4" && c.milestone != "M5" {
+				t.Skipf("pending %s", c.milestone)
+			}
 			tmpl, err := bisql.Parse(c.tmpl)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
@@ -222,7 +224,6 @@ func TestPassthrough(t *testing.T) {
 // --- §4 partial (include) — bisql's differentiator (M5) ---
 
 func TestPartialInclude(t *testing.T) {
-	t.Skip("pending M5")
 	ld := bisql.NewLoader()
 	// The fragment contains /*%if*/ and a bind: they must work after re-parsing, unlike
 	// Komapper's /*# */ raw embed.
@@ -240,5 +241,62 @@ func TestPartialInclude(t *testing.T) {
 	}
 	if !reflect.DeepEqual(stmt.Args, []any{0}) {
 		t.Errorf("got %#v", stmt.Args)
+	}
+}
+
+// A partial may reference further partials: expansion is recursive.
+func TestPartialRecursive(t *testing.T) {
+	ld := bisql.NewLoader()
+	ld.Register("cond", `age > /*minAge*/0 and /*> namePart */`)
+	ld.Register("namePart", `name = /*name*/'x'`)
+	tmpl, err := ld.Parse("select emp_no from employees where /*> cond */")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tmpl.Build(map[string]any{"minAge": 20, "name": "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "select emp_no from employees where age > ? and name = ?"; stmt.SQL != want {
+		t.Errorf("SQL\n got: %q\nwant: %q", stmt.SQL, want)
+	}
+	if !reflect.DeepEqual(stmt.Args, []any{20, "alice"}) {
+		t.Errorf("Args got %#v", stmt.Args)
+	}
+}
+
+// A cyclic partial reference is reported rather than looping forever.
+func TestPartialCycle(t *testing.T) {
+	ld := bisql.NewLoader()
+	ld.Register("a", `x = 1 and /*> b */`)
+	ld.Register("b", `y = 2 and /*> a */`)
+	tmpl, err := ld.Parse("select 1 from dual where /*> a */")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmpl.Build(nil); err == nil {
+		t.Fatal("expected a cyclic-reference error")
+	}
+}
+
+// An embedded value is re-parsed and expanded recursively: directives/binds inside the
+// runtime string are evaluated (bisql extends Komapper's raw-text /*# */ here).
+func TestEmbeddedRecursive(t *testing.T) {
+	tmpl, err := bisql.Parse("select emp_no from employees where /*# cond */")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tmpl.Build(map[string]any{
+		"cond": "name = /*name*/'x'",
+		"name": "bob",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "select emp_no from employees where name = ?"; stmt.SQL != want {
+		t.Errorf("SQL\n got: %q\nwant: %q", stmt.SQL, want)
+	}
+	if !reflect.DeepEqual(stmt.Args, []any{"bob"}) {
+		t.Errorf("Args got %#v", stmt.Args)
 	}
 }

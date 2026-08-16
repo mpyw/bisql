@@ -35,15 +35,24 @@ ORDER BY emp_no
 ## Why (differences from Komapper)
 
 bisql keeps Komapper's TEMPLATE syntax but makes **`include` a first-class runtime
-feature**.
+feature** — and extends it to embedded values too.
 
 In Komapper, splicing a fragment via `/*# */` (Embedded SQL Variables) does **not
 re-parse** the text: a fragment containing `/*%if*/` leaves the directive as a comment and
 silently misbehaves. `/*> */` (Partial) is not supported by the runtime
 `TemplateStatementBuilder` — it only works via KSP code generation (`@KomapperCommand`).
 
-bisql's `/*> name */` **re-parses the fragment into nodes and splices it into the tree**,
-so `/*%if*/` and binds inside the fragment work.
+bisql **re-parses and splices recursively** for both directives, so `/*%if*/`, binds, and
+further embeds/partials inside the spliced text all work. The two differ only in **source**:
+
+- `/*> name */` (**partial**) — a static fragment registered on a `Loader`. Safe: only
+  developer-registered text is parsed.
+- `/*# expr */` (**embedded value**) — a string produced by evaluating a runtime scope
+  expression. Powerful for injecting a dynamically-built SQL snippet, but because the text
+  comes from data it is an **injection surface**: only trusted, developer-controlled values
+  should flow through it.
+
+Recursion is bounded by a depth limit, and cyclic partial references are reported as errors.
 
 > The rationale follows the `@include` discussion in the article
 > "静的 SQL ジェネレータはなぜ Oracle と相性が悪いのか".
@@ -77,9 +86,9 @@ tmpl, err = ld.Parse(`select emp_no from employees where /*> active */`)
 | `/*^ expr */literal` | SQL literal embed |
 | `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/` | conditional |
 | `/*%for x in xs*/ … /*%end*/` | iteration |
-| `/*> name */` | **partial = include, re-parsed and spliced (bisql runtime)** |
+| `/*> name */` | **partial = include a named static fragment, re-parsed and spliced recursively** |
 | `/*%! ... */` | parser-level comment (removed from output) |
-| `/*# expr */` | raw-text embed (not re-parsed; **discouraged**) |
+| `/*# expr */` | **embedded value = splice a runtime string, re-parsed recursively** (trusted text only) |
 
 Full behavior and expected outputs:
 [docs/komapper-template-features.md](docs/komapper-template-features.md).

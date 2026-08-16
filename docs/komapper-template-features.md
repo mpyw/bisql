@@ -36,7 +36,7 @@ use for trusted values only.
 
 ## 3. Embedded value directive `/*# expr */` (M4)
 
-Emits the string value **as raw text** (not re-parsed). Can inject clause fragments.
+In **Komapper**, this emits the string value **as raw text** (not re-parsed).
 If the value is empty and the surrounding clause becomes empty, the clause is auto-removed.
 
 | template | value | SQL |
@@ -45,7 +45,11 @@ If the value is empty and the surrounding clause becomes empty, the clause is au
 | `order by /*# orderBy */` | `"name, age"` | `order by name, age` |
 | `order by /*# orderBy */` | `""` | `... (order by removed)` |
 
-> bisql keeps this for compatibility but **discourages** it (see partial below).
+> **bisql divergence:** bisql treats an embedded value as the runtime-sourced twin of a
+> partial (§4): the string is **re-parsed and spliced recursively**, so directives/binds
+> inside it are evaluated (`"name = /*name*/'x'"` binds `name`). Plain strings like the
+> rows above behave identically. Because the text comes from a runtime value, it is an
+> **injection surface** — only trusted, developer-controlled text should flow through it.
 
 ## 4. Partial directive `/*> name */` (M5) — bisql's include
 

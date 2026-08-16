@@ -32,7 +32,7 @@ internal/
     lexer/       Lexer (branches right after "/*"; recognizes clause keywords)
     parser/      Parse -> ast.Node (reducer-stack strategy)
     render/      Render (the available-flag evaluator; heart of 2-way)
-  exprlang/      built-in expression evaluator (resolves via reflection)
+  exprlang/      default expression evaluator (wraps github.com/expr-lang/expr)
 pkg/
   dialect/       Dialect, Placeholder, MySQL/PostgreSQL/Oracle/SQLServer
   expr/          Evaluator interface, Scope (public: callers can plug their own)
@@ -72,21 +72,32 @@ for exact behaviors and expected outputs.
 | `/*^ expr */literal` | SQL literal embed (dialect formats; injection-prone) |
 | `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/` | conditional |
 | `/*%for x in xs*/ … /*%end*/` | iteration (`x_index/x_has_next/x_next_comma/and/or`) |
-| `/*> name */` | **partial = bisql's include (re-parsed and spliced)** |
+| `/*> name */` | **partial = include a static named fragment (re-parsed and spliced, recursive)** |
 | `/*%! ... */` | parser-level comment (removed from output) |
-| `/*# expr */` | raw-text embed (**discouraged**; not re-parsed) |
+| `/*# expr */` | **embedded value = splice a runtime string (re-parsed and spliced, recursive)** |
 
-### Include design (the core)
+### Expansion design (the core)
 
-- `/*> name */` keeps 2-way (a block comment; pasteable).
-- On resolution, the fragment text is run through **lexer → parser to get a node subtree,
-  then spliced in place**, so `/*%if*/` and binds inside the fragment work — unlike
-  Komapper's `/*# */` raw embed.
-- Cyclic references are detected and error out; a missing fragment errors out.
-- Two modes are envisioned:
-  - **runtime**: `Loader.Parse` follows partials into a single tree.
-  - **ahead-of-time (optional)**: a tool expands partials into plain 2-way SQL files that
-    can be run through `EXPLAIN` in CI.
+Both `/*> name */` and `/*# expr */` are pasteable block comments (2-way preserved). On
+resolution, their content is run through **lexer → parser to get a node subtree, then
+spliced inline at render time**, so `/*%if*/`, binds, and nested embeds/partials inside
+work — unlike Komapper's `/*# */` raw embed. Shared machinery bounds recursion depth
+(`render.DefaultMaxDepth`) and detects partial-name cycles.
+
+The two differ only in **source**:
+
+- **partial** `/*> name */` — a static fragment registered on a `Loader`
+  (`Register` / `LoadFS`); the name is a literal known ahead of time. Safe: only
+  developer-registered text is ever parsed.
+- **embedded value** `/*# expr */` — a string produced by evaluating a runtime scope
+  expression. This lets callers inject a dynamically-built snippet, but because the text is
+  data it is an **injection surface**: only trusted values should flow through it.
+
+Two modes are envisioned:
+
+- **runtime**: `Loader.Parse` wires partial resolution; expansion happens during `Build`.
+- **ahead-of-time (optional)**: a tool expands partials into plain 2-way SQL files that can
+  be run through `EXPLAIN` in CI.
 
 ## The heart of 2-way (faithful port)
 
@@ -102,10 +113,14 @@ for exact behaviors and expected outputs.
 ## Expression evaluator
 
 - `pkg/expr.Evaluator`: `Eval(expression string, scope Scope) (any, error)`.
-- Default (`internal/exprlang`): a small language (comparisons, logical ops, literals,
-  property/method access, safe call) resolving map keys / struct fields / methods via
-  reflection.
-- Swappable via `bisql.WithEvaluator`.
+- Default (`internal/exprlang`): a thin, compile-cached wrapper over
+  `github.com/expr-lang/expr` — comparisons, logical ops, literals, property/method
+  access, optional chaining `a?.b`, nil-coalescing `??`, `in`, `len`, and collection
+  helpers. Resolves map keys / struct fields / methods against the scope.
+- The null literal is spelled `nil`, but Komapper's `x != null` idiom still works
+  (`null` is an undefined identifier that resolves to nil). Expressions never reach the
+  DB, so this does not affect the 2-way property.
+- Swappable via `bisql.WithEvaluator` (e.g. a goja JS backend, or a `null`-keyword dialect).
 
 ## Dialect
 
