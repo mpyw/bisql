@@ -89,6 +89,46 @@ func TestForHelpers(t *testing.T) {
 	})
 }
 
+// A cast (or any ':'-led suffix) after a bind's test literal is preserved: ':' is not a
+// word character, so it is not absorbed into the test literal and replaced with the value.
+func TestBindCastSuffix(t *testing.T) {
+	pg := []bisql.Option{bisql.WithDialect(dialect.PostgreSQL)}
+	cases := []struct {
+		name   string
+		tmpl   string
+		params map[string]any
+		sql    string
+		args   []any
+	}{
+		{"number cast", "select * from t where n = /*n*/1::bigint", map[string]any{"n": 1}, "select * from t where n = $1::bigint", []any{1}},
+		{"float cast", "select * from t where n = /*n*/1.5::numeric", map[string]any{"n": 1.5}, "select * from t where n = $1::numeric", []any{1.5}},
+		{"quote cast", "select * from t where c = /*ts*/'x'::timestamptz", map[string]any{"ts": "2020-01-01"}, "select * from t where c = $1::timestamptz", []any{"2020-01-01"}},
+		{"cast then and", "select * from t where a = /*a*/1::int and b = /*b*/2", map[string]any{"a": 1, "b": 2}, "select * from t where a = $1::int and b = $2", []any{1, 2}},
+		{"in cast", "select * from t where id in /*ids*/(1,2)::bigint", map[string]any{"ids": []any{1, 2}}, "select * from t where id in ($1, $2)::bigint", []any{1, 2}},
+		// CAST(... AS ...) function form: a bind inside parens with a trailing " AS type".
+		{"cast fn quote", "select * from t where c = CAST(/*ts*/'x' AS timestamptz)", map[string]any{"ts": "2020-01-01"}, "select * from t where c = CAST($1 AS timestamptz)", []any{"2020-01-01"}},
+		{"cast fn number", "select * from t where n = CAST(/*n*/1 AS bigint)", map[string]any{"n": 1}, "select * from t where n = CAST($1 AS bigint)", []any{1}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tmpl, err := bisql.Parse(c.tmpl, pg...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stmt, err := tmpl.Build(c.params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stmt.SQL != c.sql {
+				t.Errorf("SQL\n got: %q\nwant: %q", stmt.SQL, c.sql)
+			}
+			if !reflect.DeepEqual(stmt.Args, c.args) {
+				t.Errorf("Args got %#v want %#v", stmt.Args, c.args)
+			}
+		})
+	}
+}
+
 // HAVING behaves like WHERE: dynamic conditions drop a dangling leading AND, and an empty
 // HAVING is removed.
 func TestDynamicHaving(t *testing.T) {

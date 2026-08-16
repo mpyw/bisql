@@ -379,7 +379,7 @@ func isWordPart(c byte) bool {
 		return false
 	}
 	switch c {
-	case '=', '<', '>', '-', ',', '/', '*', '+', '(', ')', ';':
+	case '=', '<', '>', '-', ',', '/', '*', '+', '(', ')', ';', ':':
 		return false
 	}
 	return true
