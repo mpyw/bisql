@@ -1,0 +1,11 @@
+SQL:
+select * from t
+order by name asc , age desc  
+
+
+Args: []interface {}(nil)
+
+SQLWithArgs:
+select * from t
+order by name asc , age desc  
+

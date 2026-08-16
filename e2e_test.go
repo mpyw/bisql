@@ -1,6 +1,10 @@
 package bisql_test
 
 import (
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -8,10 +12,113 @@ import (
 	"github.com/mpyw/bisql/dialect"
 )
 
-// Complex, realistic end-to-end scenarios: CTEs, dynamic WHERE/ORDER BY, recursive
-// includes, and an all-in-one query — the shapes a real application produces.
+// Complex, realistic end-to-end scenarios. The templates with non-trivial control
+// structure live as readable .sql files under testdata/, and their expected output is
+// checked against golden files there. Regenerate the goldens with:
+//
+//	go test ./... -run TestE2E -update
+var update = flag.Bool("update", false, "update golden files in testdata/")
 
-// --- CTE (WITH ... AS (...)): WITH/RECURSIVE/AS pass through as plain words ---
+func readTestdata(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// formatStmt renders a Statement into the stable, human-readable form stored in goldens.
+func formatStmt(s bisql.Statement) string {
+	return fmt.Sprintf("SQL:\n%s\n\nArgs: %#v\n\nSQLWithArgs:\n%s\n", s.SQL, s.Args, s.SQLWithArgs)
+}
+
+// checkGolden compares (or, with -update, writes) the golden for one case.
+func checkGolden(t *testing.T, golden string, stmt bisql.Statement) {
+	t.Helper()
+	got := formatStmt(stmt)
+	path := filepath.Join("testdata", golden)
+	if *update {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s: %v (regenerate with: go test -run TestE2E -update)", golden, err)
+	}
+	if got != string(want) {
+		t.Errorf("%s mismatch\n--- got ---\n%s\n--- want ---\n%s", golden, got, want)
+	}
+}
+
+// goldenCase drives a template (from testdata) across named parameter sets, each checked
+// against testdata/<base>.<case>.golden.
+type goldenCase struct {
+	name   string
+	opts   []bisql.Option
+	params map[string]any
+}
+
+func runGolden(t *testing.T, tmplFile string, cases []goldenCase) {
+	t.Helper()
+	src := readTestdata(t, tmplFile)
+	base := tmplFile[:len(tmplFile)-len(filepath.Ext(tmplFile))]
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tmpl, err := bisql.Parse(src, c.opts...)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			stmt, err := tmpl.Build(c.params)
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			checkGolden(t, base+"."+c.name+".golden", stmt)
+		})
+	}
+}
+
+func TestE2EDynamicWhere(t *testing.T) {
+	runGolden(t, "e2e_dynamic_where.sql", []goldenCase{
+		{name: "all_set", params: map[string]any{"name": "SCOTT", "age": 20, "ids": []any{1, 2, 3}}},
+		{name: "none_set", params: map[string]any{}},
+	})
+	runGolden(t, "e2e_dynamic_where_no_idiom.sql", []goldenCase{
+		{name: "age_only", params: map[string]any{"age": 20}},
+		{name: "none_set", params: map[string]any{}},
+	})
+}
+
+func TestE2EDynamicOrderBy(t *testing.T) {
+	runGolden(t, "e2e_dynamic_order_by.sql", []goldenCase{
+		{name: "with_sorts", params: map[string]any{"sorts": []any{"name asc", "age desc"}}},
+		{name: "no_sorts", params: map[string]any{}},
+	})
+}
+
+func TestE2EForAndJoin(t *testing.T) {
+	runGolden(t, "e2e_for_and_join.sql", []goldenCase{
+		{name: "three", params: map[string]any{"conds": []any{1, 2, 3}}},
+	})
+}
+
+// The all-in-one across dialects also locks placeholder numbering across the CTE, WHERE,
+// and IN (the shape the numbering bug corrupted).
+func TestE2EAllInOne(t *testing.T) {
+	full := map[string]any{"flag": true, "cols": []any{"p.id", "p.name"}, "name": "SCOTT", "ids": []any{1, 2}, "sorts": []any{"name", "id desc"}}
+	dia := map[string]any{"flag": true, "cols": []any{"p.id"}, "name": "SCOTT", "ids": []any{1, 2}}
+	runGolden(t, "e2e_all_in_one.sql", []goldenCase{
+		{name: "mysql_full", params: full},
+		{name: "mysql_min", params: map[string]any{"flag": false, "cols": []any{"p.id"}}},
+		{name: "postgres", opts: []bisql.Option{bisql.WithDialect(dialect.PostgreSQL)}, params: dia},
+		{name: "oracle", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: dia},
+		{name: "sqlserver", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: dia},
+	})
+}
+
+// --- shorter cases kept inline (no complex control structure) ---
 
 func TestE2ECTE(t *testing.T) {
 	runBuild(t, nil, []buildCase{
@@ -38,76 +145,6 @@ func TestE2ECTE(t *testing.T) {
 		},
 	})
 }
-
-// --- dynamic WHERE ---
-
-func TestE2EDynamicWhere(t *testing.T) {
-	const idiom = "select * from person where 1 = 1 /*%if name != null*/and name = /*name*/'x'/*%end*/ /*%if age != null*/and age > /*age*/0/*%end*/ /*%if ids != null*/and id in /*ids*/(0)/*%end*/"
-	const noIdiom = "select * from person where /*%if name != null*/name = /*name*/'x'/*%end*/ /*%if age != null*/and age > /*age*/0/*%end*/"
-	runBuild(t, nil, []buildCase{
-		{
-			name:     "idiom all set",
-			tmpl:     idiom,
-			params:   map[string]any{"name": "SCOTT", "age": 20, "ids": []any{1, 2, 3}},
-			sql:      "select * from person where 1 = 1 and name = ? and age > ? and id in (?, ?, ?)",
-			args:     []any{"SCOTT", 20, 1, 2, 3},
-			withArgs: "select * from person where 1 = 1 and name = 'SCOTT' and age > 20 and id in (1, 2, 3)",
-		},
-		{
-			name:   "idiom none set",
-			tmpl:   idiom,
-			params: map[string]any{},
-			sql:    "select * from person where 1 = 1   ",
-		},
-		{
-			name:   "no-idiom only second set drops leading and",
-			tmpl:   noIdiom,
-			params: map[string]any{"age": 20},
-			sql:    "select * from person where   age > ?",
-			args:   []any{20},
-		},
-		{
-			name:   "no-idiom none set removes where",
-			tmpl:   noIdiom,
-			params: map[string]any{},
-			sql:    "select * from person ",
-		},
-	})
-}
-
-// --- dynamic ORDER BY built with a for-loop ---
-
-func TestE2EDynamicOrderBy(t *testing.T) {
-	const tmpl = "select * from t /*%if sorts != null*/order by /*%for s in sorts*//*# s */ /*# s_next_comma */ /*%end*//*%end*/"
-	runBuild(t, nil, []buildCase{
-		{
-			name:   "with sorts",
-			tmpl:   tmpl,
-			params: map[string]any{"sorts": []any{"name asc", "age desc"}},
-			sql:    "select * from t order by name asc , age desc  ",
-		},
-		{
-			name:   "no sorts removes order by",
-			tmpl:   tmpl,
-			params: map[string]any{},
-			sql:    "select * from t ",
-		},
-	})
-}
-
-func TestE2EForAndJoin(t *testing.T) {
-	runBuild(t, nil, []buildCase{
-		{
-			name:   "and-joined conditions",
-			tmpl:   "select * from t /*%if conds != null*/where /*%for c in conds*/x = /*c*/0 /*# c_next_and */ /*%end*//*%end*/",
-			params: map[string]any{"conds": []any{1, 2, 3}},
-			sql:    "select * from t where x = ? and x = ? and x = ?  ",
-			args:   []any{1, 2, 3},
-		},
-	})
-}
-
-// --- recursive includes ---
 
 func TestE2ERecursiveIncludes(t *testing.T) {
 	t.Run("nested partials a->b->c", func(t *testing.T) {
@@ -169,78 +206,15 @@ func TestE2ERecursiveIncludes(t *testing.T) {
 	})
 }
 
-// Known authoring gotchas, pinned so a change surfaces here. These stem from the shallow
-// structural model (bisql does not parse SQL grammar) and match Komapper.
-func TestE2EKnownGotchas(t *testing.T) {
+// Known authoring gotcha, pinned: an empty grouping paren is not removed (it is
+// indistinguishable from a call like count()); guard a dynamic group with an outer if.
+func TestE2EEmptyGroupingParens(t *testing.T) {
 	runBuild(t, nil, []buildCase{
 		{
-			// Empty grouping parens are NOT removed: at render time a dropped grouping
-			// group is indistinguishable from a function call like my_function(). Guard a
-			// dynamic group with an outer /*%if*/ instead of relying on removal.
-			name:   "empty grouping parens are kept (guard with outer if)",
+			name:   "kept",
 			tmpl:   "select * from t where (/*%if a*/a = 1/*%end*/)",
 			params: map[string]any{"a": false},
 			sql:    "select * from t where ()",
 		},
 	})
-}
-
-// --- all-in-one: CTE + dynamic select columns + dynamic WHERE + IN + dynamic ORDER BY ---
-
-const allInOne = "with active as (select id from acct where flag = /*flag*/true) " +
-	"select /*%for c in cols*//*# c *//*# c_next_comma */ /*%end*/ from person p join active a on a.id = p.id " +
-	"where 1 = 1 /*%if name != null*/and name = /*name*/'x'/*%end*/ /*%if ids != null*/and p.id in /*ids*/(0)/*%end*/ " +
-	"/*%if sorts != null*/order by /*%for s in sorts*//*# s *//*# s_next_comma */ /*%end*//*%end*/"
-
-func TestE2EAllInOneMySQL(t *testing.T) {
-	runBuild(t, nil, []buildCase{
-		{
-			name:     "full params",
-			tmpl:     allInOne,
-			params:   map[string]any{"flag": true, "cols": []any{"p.id", "p.name"}, "name": "SCOTT", "ids": []any{1, 2}, "sorts": []any{"name", "id desc"}},
-			sql:      "with active as (select id from acct where flag = ?) select p.id, p.name  from person p join active a on a.id = p.id where 1 = 1 and name = ? and p.id in (?, ?) order by name, id desc ",
-			args:     []any{true, "SCOTT", 1, 2},
-			withArgs: "with active as (select id from acct where flag = true) select p.id, p.name  from person p join active a on a.id = p.id where 1 = 1 and name = 'SCOTT' and p.id in (1, 2) order by name, id desc ",
-		},
-		{
-			name:   "minimal params",
-			tmpl:   allInOne,
-			params: map[string]any{"flag": false, "cols": []any{"p.id"}},
-			sql:    "with active as (select id from acct where flag = ?) select p.id  from person p join active a on a.id = p.id where 1 = 1   ",
-			args:   []any{false},
-		},
-	})
-}
-
-// The all-in-one across index-based dialects: this is the shape that the placeholder-
-// numbering bug corrupted; it must number monotonically across the CTE, WHERE, and IN.
-func TestE2EAllInOneDialects(t *testing.T) {
-	params := map[string]any{"flag": true, "cols": []any{"p.id"}, "name": "SCOTT", "ids": []any{1, 2}}
-	cases := []struct {
-		name string
-		d    dialect.Dialect
-		sql  string
-	}{
-		{"postgres", dialect.PostgreSQL, "with active as (select id from acct where flag = $1) select p.id  from person p join active a on a.id = p.id where 1 = 1 and name = $2 and p.id in ($3, $4) "},
-		{"oracle", dialect.Oracle, "with active as (select id from acct where flag = :1) select p.id  from person p join active a on a.id = p.id where 1 = 1 and name = :2 and p.id in (:3, :4) "},
-		{"sqlserver", dialect.SQLServer, "with active as (select id from acct where flag = @p1) select p.id  from person p join active a on a.id = p.id where 1 = 1 and name = @p2 and p.id in (@p3, @p4) "},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			tmpl, err := bisql.Parse(allInOne, bisql.WithDialect(c.d))
-			if err != nil {
-				t.Fatal(err)
-			}
-			stmt, err := tmpl.Build(params)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if stmt.SQL != c.sql {
-				t.Errorf("SQL\n got: %q\nwant: %q", stmt.SQL, c.sql)
-			}
-			if !reflect.DeepEqual(stmt.Args, []any{true, "SCOTT", 1, 2}) {
-				t.Errorf("Args got %#v", stmt.Args)
-			}
-		})
-	}
 }

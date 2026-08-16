@@ -1,0 +1,11 @@
+SQL:
+select * from t
+where x = ? and x = ? and x = ?  
+
+
+Args: []interface {}{1, 2, 3}
+
+SQLWithArgs:
+select * from t
+where x = 1 and x = 2 and x = 3  
+

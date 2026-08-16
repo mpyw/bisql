@@ -1,0 +1,13 @@
+SQL:
+select * from person
+where
+ age > ?
+
+
+Args: []interface {}{20}
+
+SQLWithArgs:
+select * from person
+where
+ age > 20
+
