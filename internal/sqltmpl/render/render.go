@@ -482,8 +482,15 @@ func (r *renderer) evalBool(exprStr string, s *state) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if v == nil {
+		// A nil (or absent, under AllowUndefinedVariables) condition is falsy, so
+		// /*%if activeOnly*/ needs no defensive guard — mirroring the for-loop's nil rule.
+		return false, nil
+	}
 	b, ok := v.(bool)
 	if !ok {
+		// A non-nil, non-boolean condition is a type error (e.g. /*%if name*/ where name is
+		// a string — the author likely meant /*%if name != null*/).
 		return false, fmt.Errorf("bisql/render: expression %q is not a boolean (got %T)", exprStr, v)
 	}
 	return b, nil
@@ -506,8 +513,18 @@ func (r *renderer) visitFor(s *state, node ast.ForBlock) error {
 		return fmt.Errorf("bisql/render: for expression %q is not iterable (got %T)", node.For.Expression, v)
 	}
 	id := node.For.Identifier
-	saved, hadSaved := s.scope[id]
-	helper := []string{id + "_index", id + "_has_next", id + "_next_comma", id + "_next_and", id + "_next_or"}
+	// The loop variable and its helper variables shadow the scope for the loop's duration;
+	// save any pre-existing values (a caller could have a key named like a helper, or an
+	// outer loop with the same identifier) and restore them afterwards.
+	names := []string{id, id + "_index", id + "_has_next", id + "_next_comma", id + "_next_and", id + "_next_or"}
+	saved := make(map[string]any, len(names))
+	had := make(map[string]bool, len(names))
+	for _, n := range names {
+		if v, ok := s.scope[n]; ok {
+			saved[n] = v
+			had[n] = true
+		}
+	}
 	for i, e := range elems {
 		hasNext := i < len(elems)-1
 		s.scope[id] = e
@@ -522,13 +539,12 @@ func (r *renderer) visitFor(s *state, node ast.ForBlock) error {
 			}
 		}
 	}
-	if hadSaved {
-		s.scope[id] = saved
-	} else {
-		delete(s.scope, id)
-	}
-	for _, h := range helper {
-		delete(s.scope, h)
+	for _, n := range names {
+		if had[n] {
+			s.scope[n] = saved[n]
+		} else {
+			delete(s.scope, n)
+		}
 	}
 	return nil
 }

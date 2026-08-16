@@ -89,6 +89,90 @@ func TestForHelpers(t *testing.T) {
 	})
 }
 
+// HAVING behaves like WHERE: dynamic conditions drop a dangling leading AND, and an empty
+// HAVING is removed.
+func TestDynamicHaving(t *testing.T) {
+	const tmpl = "select x, count(*) from t group by x having /*%if a*/and count(*) > /*n*/1/*%end*/ /*%if b*/and sum(y) > /*m*/2/*%end*/"
+	runBuild(t, nil, []buildCase{
+		{
+			name:   "second only drops leading and",
+			tmpl:   tmpl,
+			params: map[string]any{"b": true, "m": 2},
+			sql:    "select x, count(*) from t group by x having   sum(y) > ?",
+			args:   []any{2},
+		},
+		{
+			name:   "none removes having",
+			tmpl:   tmpl,
+			params: map[string]any{},
+			sql:    "select x, count(*) from t group by x ",
+		},
+	})
+}
+
+// A subquery's own WHERE is dropped/trimmed independently of the outer query (the paren
+// contents render in their own availability scope).
+func TestSubqueryDynamicWhere(t *testing.T) {
+	const tmpl = "select * from (select id from t where /*%if a*/and x = /*x*/1/*%end*/) s where /*%if b*/and y = /*y*/2/*%end*/"
+	runBuild(t, nil, []buildCase{
+		{
+			name:   "inner only",
+			tmpl:   tmpl,
+			params: map[string]any{"a": true, "x": 1},
+			sql:    "select * from (select id from t where  x = ?) s ",
+			args:   []any{1},
+		},
+		{
+			name:   "outer only",
+			tmpl:   tmpl,
+			params: map[string]any{"b": true, "y": 2},
+			sql:    "select * from (select id from t ) s where  y = ?",
+			args:   []any{2},
+		},
+		{
+			name:   "none",
+			tmpl:   tmpl,
+			params: map[string]any{},
+			sql:    "select * from (select id from t ) s ",
+		},
+	})
+}
+
+// A bare /*%if flag*/ with flag nil/absent is falsy (no defensive guard needed); a non-nil,
+// non-boolean condition is still an error (see TestBuildErrors).
+func TestIfNilIsFalsy(t *testing.T) {
+	runBuild(t, nil, []buildCase{
+		{
+			name:   "absent flag is false",
+			tmpl:   "select 1 from t /*%if activeOnly*/where retired = 0/*%end*/",
+			params: map[string]any{},
+			sql:    "select 1 from t ",
+		},
+		{
+			name:   "true flag renders",
+			tmpl:   "select 1 from t /*%if activeOnly*/where retired = 0/*%end*/",
+			params: map[string]any{"activeOnly": true},
+			sql:    "select 1 from t where retired = 0",
+		},
+	})
+}
+
+// for-loop variables and helpers restore pre-existing scope values afterwards (a caller key
+// named like a helper is not clobbered).
+func TestForRestoresShadowedScope(t *testing.T) {
+	tmpl, err := bisql.Parse("/*%for i in xs*/x/*%end*/ tail=/*# i_index */")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tmpl.Build(map[string]any{"xs": []any{1, 2}, "i_index": "USER"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stmt.SQL != "xx tail=USER" {
+		t.Errorf("got %q, want %q (pre-existing i_index restored)", stmt.SQL, "xx tail=USER")
+	}
+}
+
 // --- §8 with block: exposes a value's members as scope variables ---
 
 func TestWithBlock(t *testing.T) {
