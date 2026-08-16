@@ -71,6 +71,15 @@ type renderer struct {
 	resolve  func(name string) (ast.Node, error)
 	maxDepth int
 
+	// nargs is the running count of emitted binds; it is the source of the placeholder
+	// index. It must be renderer-global (not per-state): child states hold their own args
+	// slices that are merged later, so deriving the index from a per-state length would
+	// restart numbering inside every droppable clause / set operand / spliced partial and
+	// break every index-based dialect ($n, :n, @pn). Because a bind sets available (so a
+	// bind-bearing subtree is never dropped), every counted bind survives into the final
+	// args in visitation order — keeping the placeholder number equal to the arg position.
+	nargs int
+
 	// recursion tracking for embedded values and partials
 	depth  int
 	active map[string]bool // partial names currently being expanded (cycle detection)
@@ -307,7 +316,8 @@ func (r *renderer) eval(exprStr string, s *state) (any, error) {
 // than failing the render.
 func (r *renderer) bindOne(s *state, v any) {
 	s.flushBlanks()
-	s.sql.WriteString(r.ph(len(s.args)+1, ""))
+	r.nargs++
+	s.sql.WriteString(r.ph(r.nargs, ""))
 	s.args = append(s.args, v)
 	litStr, err := r.lit(v)
 	if err != nil {
@@ -321,6 +331,10 @@ func (r *renderer) visitBind(s *state, node ast.BindValue) error {
 	if err != nil {
 		return err
 	}
+	// A bind is real content: mark the state available so a clause or set operand whose
+	// only content is a bind is kept (not silently dropped, discarding the value). This
+	// also guarantees no counted bind lives in a dropped subtree (see renderer.nargs).
+	s.available = true
 	if elems, ok := asIterable(v); ok {
 		s.appendString("(")
 		if len(elems) == 0 {
@@ -367,6 +381,8 @@ func (r *renderer) visitLiteral(s *state, node ast.LiteralValue) error {
 	if err != nil {
 		return fmt.Errorf("bisql/render: literal %q: %w", node.Expression, err)
 	}
+	// A literal is real content (like a bind); keep its enclosing clause/operand.
+	s.available = true
 	s.appendString(lit)
 	for _, c := range node.Trailing {
 		if err := r.visit(s, c); err != nil {

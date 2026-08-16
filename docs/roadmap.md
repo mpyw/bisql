@@ -75,8 +75,8 @@ in source (static loader-registered fragment vs. runtime scope expression). See 
 
 ## M6: finishing ✅ (except the optional AOT tool)
 
-- [x] `Statement.SQLWithArgs` (values-embedded form): a second render pass with
-      `render.Config.EmbedValues`, reusing the dialect literal formatter
+- [x] `Statement.SQLWithArgs` (values-embedded form): produced in the same single render
+      pass (two mirrored buffers), reusing the dialect literal formatter
 - [x] benchmarks (`bench_test.go`) + `Template` concurrency test (passes under `-race`)
 - [x] GoDoc examples (`example_test.go`, verified by `go test`)
 - [x] CI (`.github/workflows/ci.yml`): mise-pinned toolchain, runs `mise run check`
@@ -84,6 +84,24 @@ in source (static loader-registered fragment vs. runtime scope expression). See 
 - [ ] optional ahead-of-time expander (`cmd/bisql-expand`) — **deferred**: inline partials
       textually into a plain 2-way SQL file for CI `EXPLAIN`. Not required for the library
       itself; revisit if wanted.
+
+## Post-M6: critical review (adversarial + E2E design) ✅
+
+Two independent reviews (bug-hunting + complex-scenario design) found and fixed two real
+correctness bugs, plus added the missing complex E2E coverage:
+
+- **Placeholder numbering** restarted at 1 inside every droppable clause / set operand /
+  subquery / spliced partial (per-state `args` length), corrupting all index-based dialects
+  (`$n`/`:n`/`@pn`); MySQL `?` masked it. Fixed with a renderer-global bind counter.
+- **Bind-only content was silently dropped** (a bind did not set the `available` flag), so
+  e.g. `select /*a*/1 union select /*b*/2` produced empty SQL. Binds and literals now set
+  `available`; this also guarantees no counted bind lives in a dropped subtree.
+- Promoted fields of an embedded struct are now visible to `toScope` (Go promotion / json
+  semantics; shallower wins).
+- Added `regression_test.go` (dialect numbering, bind-only-kept, embedded fields) and
+  `e2e_test.go` (CTE, dynamic WHERE/ORDER BY, recursive includes, all-in-one × dialects).
+- Documented authoring gotchas (empty grouping parens, keyword-named identifiers) with
+  pinned tests; see README.
 
 ## Source cases to port from Komapper
 

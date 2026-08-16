@@ -104,14 +104,42 @@ func toScope(params any) (expr.Scope, error) {
 		rv = rv.Elem()
 	}
 	if rv.Kind() == reflect.Struct {
-		t := rv.Type()
-		scope := make(expr.Scope, t.NumField())
-		for i := 0; i < t.NumField(); i++ {
-			if f := t.Field(i); f.IsExported() {
-				scope[f.Name] = rv.Field(i).Interface()
-			}
-		}
-		return scope, nil
+		return structScope(rv), nil
 	}
 	return nil, fmt.Errorf("bisql: cannot use %T as parameters (want map[string]any, expr.Scope, or a struct)", params)
+}
+
+// structScope flattens a struct's exported fields into a scope. Fields of anonymous
+// (embedded) structs are promoted to their bare names, matching Go's field promotion and
+// encoding/json: shallower fields win over deeper ones (breadth-first). An embedded struct
+// is also kept under its own type name so it stays reachable qualified (e.g. Base.Field).
+func structScope(rv reflect.Value) expr.Scope {
+	scope := expr.Scope{}
+	level := []reflect.Value{rv}
+	for len(level) > 0 {
+		var next []reflect.Value
+		for _, sv := range level {
+			t := sv.Type()
+			for i := 0; i < t.NumField(); i++ {
+				f := t.Field(i)
+				fv := sv.Field(i)
+				if f.Anonymous {
+					ev := fv
+					for ev.Kind() == reflect.Pointer && !ev.IsNil() {
+						ev = ev.Elem()
+					}
+					if ev.Kind() == reflect.Struct {
+						next = append(next, ev)
+					}
+				}
+				if f.IsExported() {
+					if _, seen := scope[f.Name]; !seen {
+						scope[f.Name] = fv.Interface()
+					}
+				}
+			}
+		}
+		level = next
+	}
+	return scope
 }

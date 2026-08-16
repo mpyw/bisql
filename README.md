@@ -94,6 +94,20 @@ tmpl, err = ld.Parse(`select emp_no from employees where /*> active */`)
 Full behavior and expected outputs:
 [docs/komapper-template-features.md](docs/komapper-template-features.md).
 
+## Authoring notes / limitations
+
+Because bisql does not parse SQL as a grammar (shallow structural tokenization, like
+Komapper), a few things are the template author's responsibility:
+
+- **Empty grouping parens are not removed.** `where (/*%if a*/a = 1/*%end*/)` with `a`
+  false renders `where ()` — a dropped group is indistinguishable from a call like
+  `count()`. Guard the whole group with an outer `/*%if*/` instead.
+- **Dynamic WHERE without the `1 = 1` idiom** works (a leading `AND`/`OR` left dangling is
+  dropped, and an empty `WHERE` is removed) as long as `where` is a real clause keyword,
+  not nested inside the first `/*%if*/`.
+- **Identifiers that spell a clause / set-operator keyword** (`select`, `where`, `union`,
+  …) must be quoted; unquoted, they are tokenized as the keyword.
+
 ## Layout
 
 ```
