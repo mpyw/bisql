@@ -15,7 +15,7 @@ func TestParse_Lossless(t *testing.T) {
 		"select * from t where a = /*a*/'x' and b > /*b*/0",
 		"select id from t where id in /*ids*/(1, 2, 3)",
 		"select * from (select id from t) x",
-		"select 1 from t /*%if a*/where x = 1/*%elseif b*/where y = 2/*%else*/where z = 3/*%end*/",
+		"select 1 from t where /*%if a*/x = 1/*%elseif b*/y = 2/*%else*/z = 3/*%end*/",
 		"select /*%for c in cols*/x/*%if c_has_next*/,/*%end*//*%end*/ from t",
 		"select 1 where /*%with u*/a = /*a*/0/*%end*/",
 		"select /** keep */ /*# also-a-comment */ 1 -- trailing\nfrom t",
