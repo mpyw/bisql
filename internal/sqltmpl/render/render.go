@@ -330,7 +330,9 @@ func (r *renderer) visitBind(s *state, node ast.BindValue) error {
 			if i > 0 {
 				s.appendString(", ")
 			}
-			if tup, ok := asTuple(e); ok {
+			// An element that is itself a slice/array is a multi-column row (tuple), e.g.
+			// (a, b) IN ((1, 2), (3, 4)); any arity is supported.
+			if tup, ok := asIterable(e); ok {
 				s.appendString("(")
 				for j, te := range tup {
 					if j > 0 {
