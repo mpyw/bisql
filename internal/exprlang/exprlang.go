@@ -19,7 +19,7 @@ import (
 	goexpr "github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 
-	"github.com/mpyw/bisql/pkg/expr"
+	"github.com/mpyw/bisql/expr"
 )
 
 // Default is bisql's built-in evaluator. It satisfies expr.Evaluator.

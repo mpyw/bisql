@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/mpyw/bisql"
-	"github.com/mpyw/bisql/pkg/dialect"
+	"github.com/mpyw/bisql/dialect"
 )
 
 // buildCase is a full-pipeline expectation: parse tmpl, build with params, compare SQL,

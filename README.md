@@ -63,7 +63,7 @@ Recursion is bounded by a depth limit, and cyclic partial references are reporte
 ```go
 import (
     "github.com/mpyw/bisql"
-    "github.com/mpyw/bisql/pkg/dialect"
+    "github.com/mpyw/bisql/dialect"
 )
 
 tmpl, err := bisql.Parse(sqlText, bisql.WithDialect(dialect.MySQL))
@@ -98,17 +98,17 @@ Full behavior and expected outputs:
 
 ```
 bisql            (root) Parse / Template / Statement / Option / Loader
+dialect/         Dialect + placeholders (MySQL/PostgreSQL/Oracle/SQLServer)
+expr/            Evaluator interface + Scope (plug your own)
 internal/
   sqltmpl/{token,ast,lexer,parser,render}   SQL template layer
   exprlang/                                 built-in expression evaluator
-pkg/
-  dialect/       Dialect + placeholders (MySQL/PostgreSQL/Oracle/SQLServer)
-  expr/          Evaluator interface + Scope (plug your own)
 docs/
 ```
 
-Public sub-packages live under `pkg/`; private ones under `internal/`. The heart of 2-way
-is the `available`-flag evaluator in `internal/sqltmpl/render`.
+Public sub-packages sit at the top level (`dialect`, `expr`); private ones under
+`internal/`. The heart of 2-way is the `available`-flag evaluator in
+`internal/sqltmpl/render`.
 
 ## Documentation
 

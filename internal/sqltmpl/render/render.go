@@ -9,10 +9,10 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/mpyw/bisql/dialect"
+	"github.com/mpyw/bisql/expr"
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 	"github.com/mpyw/bisql/internal/sqltmpl/parser"
-	"github.com/mpyw/bisql/pkg/dialect"
-	"github.com/mpyw/bisql/pkg/expr"
 )
 
 // Result is the rendered statement. SQL/Args are the executable placeholder form;

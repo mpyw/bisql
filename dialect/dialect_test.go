@@ -3,7 +3,7 @@ package dialect_test
 import (
 	"testing"
 
-	"github.com/mpyw/bisql/pkg/dialect"
+	"github.com/mpyw/bisql/dialect"
 )
 
 func TestNamesAndPlaceholders(t *testing.T) {

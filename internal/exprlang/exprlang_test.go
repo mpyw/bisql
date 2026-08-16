@@ -3,7 +3,7 @@ package exprlang
 import (
 	"testing"
 
-	"github.com/mpyw/bisql/pkg/expr"
+	"github.com/mpyw/bisql/expr"
 )
 
 func eval(t *testing.T, e string, scope expr.Scope) any {

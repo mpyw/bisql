@@ -36,7 +36,7 @@ The template is two independent little languages:
    `ExprNode` → `ExprEvaluator`. A small language for the contents of `/*%if HERE*/`,
    `/* HERE */`, etc.
 
-bisql keeps this split (`internal/sqltmpl` and `internal/exprlang` + public `pkg/expr`).
+bisql keeps this split (`internal/sqltmpl` and `internal/exprlang` + public `expr`).
 
 ## Directives
 
@@ -149,7 +149,7 @@ Per `ExprTokenType`:
 
 A small evaluator over a value map. The Go version resolves struct fields / map keys /
 methods by reflection. **The evaluator is an interface** (swappable) with a default impl
-(`internal/exprlang`, public interface in `pkg/expr`).
+(`internal/exprlang`, public interface in `expr`).
 
 ## What bisql ports vs. changes
 

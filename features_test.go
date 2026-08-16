@@ -6,7 +6,7 @@ import (
 	"testing/fstest"
 
 	"github.com/mpyw/bisql"
-	"github.com/mpyw/bisql/pkg/expr"
+	"github.com/mpyw/bisql/expr"
 )
 
 // keyEvaluator is a trivial custom evaluator: it treats each expression as a scope key.

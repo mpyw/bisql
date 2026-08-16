@@ -20,11 +20,14 @@ backlog) is in [`komapper-template-features.md`](./komapper-template-features.md
 
 ## Package layout
 
-Fine-grained on purpose (namespace hygiene). Public sub-packages under `pkg/`, private
-ones under `internal/`, so the top level stays tidy.
+Fine-grained on purpose (namespace hygiene). Public sub-packages sit at the top level with
+clean import paths; private ones under `internal/`. No `pkg/` — that convention is debated
+and would only add a redundant path segment.
 
 ```
 bisql            (root) Parse / Template / Statement / Option / Loader
+dialect/         Dialect, Placeholder, MySQL/PostgreSQL/Oracle/SQLServer
+expr/            Evaluator interface, Scope (public: callers can plug their own)
 internal/
   sqltmpl/       SQL template layer (shallow structure)
     token/       Kind + kind consts
@@ -33,9 +36,6 @@ internal/
     parser/      Parse -> ast.Node (reducer-stack strategy)
     render/      Render (the available-flag evaluator; heart of 2-way)
   exprlang/      default expression evaluator (wraps github.com/expr-lang/expr)
-pkg/
-  dialect/       Dialect, Placeholder, MySQL/PostgreSQL/Oracle/SQLServer
-  expr/          Evaluator interface, Scope (public: callers can plug their own)
 ```
 
 The root package exposes only `Parse / Template.Build / Statement / Loader / Option`.
@@ -112,7 +112,7 @@ Two modes are envisioned:
 
 ## Expression evaluator
 
-- `pkg/expr.Evaluator`: `Eval(expression string, scope Scope) (any, error)`.
+- `expr.Evaluator`: `Eval(expression string, scope Scope) (any, error)`.
 - Default (`internal/exprlang`): a thin, compile-cached wrapper over
   `github.com/expr-lang/expr` — comparisons, logical ops, literals, property/method
   access, optional chaining `a?.b`, nil-coalescing `??`, `in`, `len`, and collection

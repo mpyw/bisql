@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/mpyw/bisql"
-	"github.com/mpyw/bisql/pkg/dialect"
+	"github.com/mpyw/bisql/dialect"
 )
 
 // The bind directive /* expr */ becomes a placeholder; the literal after it (here 'x') is

@@ -36,7 +36,7 @@ Read first:
   trusted text should flow through it). Shared machinery bounds depth (`DefaultMaxDepth`)
   and detects partial-name cycles.
 - **Two layers.** Keep the SQL template layer (`internal/sqltmpl`) and the expression
-  layer (`internal/exprlang` + public `pkg/expr`) separate.
+  layer (`internal/exprlang` + public `expr`) separate.
 
 ## Package layout (fine-grained on purpose)
 
@@ -45,6 +45,8 @@ identifiers over a big package with prefixed names (e.g. `token.Word`, not `tokW
 
 ```
 bisql            (root) Parse / Template / Statement / Option / Loader
+dialect/         Dialect, Placeholder, MySQL/PostgreSQL/Oracle/SQLServer
+expr/            Evaluator interface, Scope (public, so callers can plug their own)
 internal/
   sqltmpl/
     token/       Kind + kind consts
@@ -53,14 +55,12 @@ internal/
     parser/      Parse -> ast.Node
     render/      Render (the available-flag evaluator)
   exprlang/      default expression evaluator (thin wrapper over github.com/expr-lang/expr)
-pkg/
-  dialect/       Dialect, Placeholder, MySQL/PostgreSQL/Oracle/SQLServer
-  expr/          Evaluator interface, Scope (public, so callers can plug their own)
 docs/
 ```
 
-- Public sub-packages live under `pkg/` to keep the top level tidy; private ones under
-  `internal/`.
+- Public sub-packages sit at the top level with clean import paths (`.../dialect`,
+  `.../expr`); private ones under `internal/`. (No `pkg/` — the convention is debated and
+  would only add a redundant path segment.)
 - The root package exposes only `Parse / Template.Build / Statement / Loader / Option`.
   Internal token/ast types must not leak into the public API.
 

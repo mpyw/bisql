@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/mpyw/bisql/dialect"
+	"github.com/mpyw/bisql/expr"
 	"github.com/mpyw/bisql/internal/exprlang"
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 	"github.com/mpyw/bisql/internal/sqltmpl/parser"
 	"github.com/mpyw/bisql/internal/sqltmpl/render"
-	"github.com/mpyw/bisql/pkg/dialect"
-	"github.com/mpyw/bisql/pkg/expr"
 )
 
 // Template is a parsed template. It is immutable and safe for concurrent Build calls.
