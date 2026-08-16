@@ -1,7 +1,7 @@
 with active as (
     select id from acct where flag = :1
 )
-select p.id
+select p.id  /** projected columns */
 from person p
 join active a on a.id = p.id
 where 1 = 1

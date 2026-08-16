@@ -1,4 +1,4 @@
-select * from person
+select * /** all columns */ from person
 where 1 = 1
 and name = 'SCOTT'
 and age > 20

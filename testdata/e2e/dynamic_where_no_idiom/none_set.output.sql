@@ -1,1 +1,1 @@
-select * from person
+select * /** all columns */ from person

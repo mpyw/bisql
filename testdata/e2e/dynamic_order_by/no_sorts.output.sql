@@ -1,1 +1,1 @@
-select * from t
+select * /** all columns */ from t
