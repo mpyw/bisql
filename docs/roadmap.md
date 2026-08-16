@@ -79,7 +79,8 @@ in source (static loader-registered fragment vs. runtime scope expression). See 
       `render.Config.EmbedValues`, reusing the dialect literal formatter
 - [x] benchmarks (`bench_test.go`) + `Template` concurrency test (passes under `-race`)
 - [x] GoDoc examples (`example_test.go`, verified by `go test`)
-- [x] CI (`.github/workflows/ci.yml`): gofmt / build / vet / `go test -race` / golangci-lint
+- [x] CI (`.github/workflows/ci.yml`): mise-pinned toolchain, runs `mise run check`
+      (fmt / build / vet / golangci-lint / deadcode / `go test -race`)
 - [ ] optional ahead-of-time expander (`cmd/bisql-expand`) — **deferred**: inline partials
       textually into a plain 2-way SQL file for CI `EXPLAIN`. Not required for the library
       itself; revisit if wanted.

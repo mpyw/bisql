@@ -51,7 +51,7 @@ func toStr(v any) string {
 // entries) for a with block.
 func membersOf(v any) (map[string]any, error) {
 	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Ptr {
+	for rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return nil, fmt.Errorf("nil pointer has no properties")
 		}

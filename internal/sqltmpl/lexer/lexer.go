@@ -19,7 +19,6 @@ type Lexer struct {
 	src  string
 	pos  int // scan position (byte offset)
 	line int // current line (1-based), tracked as newlines are consumed
-	col  int // column of the token most recently returned (1-based)
 
 	lineStart int // byte offset of the current line start
 	tokenLine int // line at the start of the current token
@@ -170,7 +169,7 @@ func (l *Lexer) scanQuote() token.Kind {
 // scanSlashStar handles everything beginning with "/*": directives and plain block
 // comments. On entry src[pos:pos+2] == "/*".
 func (l *Lexer) scanSlashStar() token.Kind {
-	kind := token.MultiLineComment
+	var kind token.Kind
 	c := l.peekAt(l.pos + 2)
 	switch {
 	case c == '^':

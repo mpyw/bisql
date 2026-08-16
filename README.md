@@ -120,11 +120,13 @@ Public sub-packages sit at the top level (`dialect`, `expr`); private ones under
 
 ## Development
 
+Toolchain (Go, golangci-lint, deadcode) is pinned in `mise.toml` — install [mise](https://mise.jdx.dev),
+then:
+
 ```sh
-go build ./...
-go vet ./...
-gofmt -l .
-go test ./...
+mise install       # fetch the pinned tools
+mise run check     # fmt + build + vet + lint + deadcode + test -race
+mise run test      # just the tests
 ```
 
 ## License

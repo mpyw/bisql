@@ -97,7 +97,7 @@ func toScope(params any) (expr.Scope, error) {
 		return p, nil
 	}
 	rv := reflect.ValueOf(params)
-	for rv.Kind() == reflect.Ptr {
+	for rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return expr.Scope{}, nil
 		}

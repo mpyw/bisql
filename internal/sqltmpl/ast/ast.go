@@ -225,20 +225,15 @@ type Comment struct{ Token string }
 
 func (n Comment) Text() string { return n.Token }
 
-// Space and Eol are blank nodes: not real SQL body. The renderer buffers them and does not
-// count them as "available".
+// Space and Eol are blank nodes: not real SQL body. The renderer buffers them (matching on
+// their concrete types) and does not count them as "available".
 type Space struct{ Token string }
 
 func (n Space) Text() string { return n.Token }
-func (Space) Blank()         {}
 
 type Eol struct{ Token string }
 
 func (n Eol) Text() string { return n.Token }
-func (Eol) Blank()         {}
-
-// Blank marks whitespace nodes.
-type Blank interface{ Blank() }
 
 func join(nodes []Node) string {
 	var b []byte

@@ -80,7 +80,8 @@ docs/
   hand-rolled parser. Everything else stays dependency-free; alternative evaluators
   (e.g. a goja JS backend) go behind `bisql.WithEvaluator`, never as a hard dep.
 - Public API gets English GoDoc comments.
-- Before committing: `go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./...`.
+- Tooling is pinned in `mise.toml` (Go, golangci-lint, deadcode). Before committing run
+  `mise run check` (fmt + build + vet + lint + deadcode + `test -race`); it must be clean.
 - When a change affects behavior, add/update the corresponding test in the same commit.
 
 ## Do not
