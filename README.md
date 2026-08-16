@@ -4,10 +4,11 @@
 [Komapper](https://www.komapper.org/)'s TEMPLATE API, with a **first-class `include`**
 (via the Komapper partial syntax `/*> name */`).
 
-> ⚠️ **Status: scaffolding (M0).** Types, the public API shape, the design docs, and a full
-> analysis of Komapper's implementation are in place. The lexer / parser / evaluator
-> bodies come next (see [docs/roadmap.md](docs/roadmap.md)). The spec tests in
-> `bisql_test.go` are written and skipped per milestone.
+> **Status: functional.** Lexer, parser, expression evaluator (backed by
+> [expr-lang](https://github.com/expr-lang/expr)), the 2-way renderer, and recursive
+> include/embedded expansion are implemented and tested; see
+> [docs/roadmap.md](docs/roadmap.md). The one deferred item is the optional ahead-of-time
+> `cmd/bisql-expand` tool. API may still change before a tagged release.
 
 ## What is 2-way SQL
 
@@ -57,7 +58,7 @@ Recursion is bounded by a depth limit, and cyclic partial references are reporte
 > The rationale follows the `@include` discussion in the article
 > "静的 SQL ジェネレータはなぜ Oracle と相性が悪いのか".
 
-## Usage (intended API)
+## Usage
 
 ```go
 import (

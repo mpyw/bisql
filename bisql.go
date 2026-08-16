@@ -69,17 +69,23 @@ func (t *Template) Build(params any) (Statement, error) {
 	if err != nil {
 		return Statement{}, err
 	}
-	res, err := render.Render(t.root, scope, render.Config{
+	cfg := render.Config{
 		Evaluator:   t.evaluator,
 		Placeholder: t.dialect.Placeholder(),
 		Literal:     t.dialect.Literal(),
 		Resolve:     t.resolve,
-	})
+	}
+	res, err := render.Render(t.root, scope, cfg)
 	if err != nil {
 		return Statement{}, err
 	}
-	// TODO(M6): produce SQLWithArgs (values-embedded form).
-	return Statement{SQL: res.SQL, Args: res.Args}, nil
+	// Second pass with values embedded inline, for the snapshot/review form.
+	cfg.EmbedValues = true
+	embedded, err := render.Render(t.root, scope, cfg)
+	if err != nil {
+		return Statement{}, err
+	}
+	return Statement{SQL: res.SQL, Args: res.Args, SQLWithArgs: embedded.SQL}, nil
 }
 
 // toScope converts params into an expression scope.

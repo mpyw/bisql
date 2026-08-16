@@ -36,6 +36,10 @@ type Config struct {
 	Resolve func(name string) (ast.Node, error)
 	// MaxDepth bounds recursive expansion; <= 0 uses DefaultMaxDepth.
 	MaxDepth int
+	// EmbedValues renders bound values inline as SQL literals (via Literal) instead of
+	// placeholders, producing the values-embedded form for snapshots/review. Result.Args is
+	// then empty. Never execute this form.
+	EmbedValues bool
 }
 
 // Render evaluates the tree against the scope, producing the placeholder-form SQL and its
@@ -51,6 +55,7 @@ func Render(n ast.Node, scope expr.Scope, cfg Config) (Result, error) {
 		lit:      cfg.Literal,
 		resolve:  cfg.Resolve,
 		maxDepth: maxDepth,
+		embed:    cfg.EmbedValues,
 		active:   map[string]bool{},
 	}
 	st := newState(scope)
@@ -67,6 +72,7 @@ type renderer struct {
 	lit      dialect.Literal
 	resolve  func(name string) (ast.Node, error)
 	maxDepth int
+	embed    bool
 
 	// recursion tracking for embedded values and partials
 	depth  int
@@ -291,10 +297,21 @@ func (r *renderer) eval(exprStr string, s *state) (any, error) {
 	return v, nil
 }
 
-func (r *renderer) bindOne(s *state, v any) {
+// bindOne emits a single bound value: a placeholder (collecting the value into args) in the
+// normal mode, or an inline SQL literal in the values-embedded mode.
+func (r *renderer) bindOne(s *state, v any) error {
+	if r.embed {
+		lit, err := r.lit(v)
+		if err != nil {
+			return fmt.Errorf("bisql/render: embedding value: %w", err)
+		}
+		s.appendString(lit)
+		return nil
+	}
 	s.flushBlanks()
 	s.buf.WriteString(r.ph(len(s.args)+1, ""))
 	s.args = append(s.args, v)
+	return nil
 }
 
 func (r *renderer) visitBind(s *state, node ast.BindValue) error {
@@ -317,16 +334,20 @@ func (r *renderer) visitBind(s *state, node ast.BindValue) error {
 					if j > 0 {
 						s.appendString(", ")
 					}
-					r.bindOne(s, te)
+					if err := r.bindOne(s, te); err != nil {
+						return err
+					}
 				}
 				s.appendString(")")
 			} else {
-				r.bindOne(s, e)
+				if err := r.bindOne(s, e); err != nil {
+					return err
+				}
 			}
 		}
 		s.appendString(")")
-	} else {
-		r.bindOne(s, v)
+	} else if err := r.bindOne(s, v); err != nil {
+		return err
 	}
 	// Trailing nodes (whatever followed the test literal) render after the placeholder.
 	for _, c := range node.Trailing {

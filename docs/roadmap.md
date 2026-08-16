@@ -73,12 +73,16 @@ in source (static loader-registered fragment vs. runtime scope expression). See 
 - [x] unskip `TestPartialInclude`; add `TestPartialRecursive`, `TestPartialCycle`,
       `TestEmbeddedRecursive`
 
-## M6: finishing
+## M6: finishing ✅ (except the optional AOT tool)
 
-- [ ] `Statement.SQLWithArgs` (values-embedded form)
-- [ ] optional ahead-of-time expander (`cmd/bisql-expand`)
-- [ ] benchmarks; confirm `Template` immutability / concurrency
-- [ ] GoDoc examples (`example_test.go`), CI (`go test` / `go vet` / `golangci-lint`)
+- [x] `Statement.SQLWithArgs` (values-embedded form): a second render pass with
+      `render.Config.EmbedValues`, reusing the dialect literal formatter
+- [x] benchmarks (`bench_test.go`) + `Template` concurrency test (passes under `-race`)
+- [x] GoDoc examples (`example_test.go`, verified by `go test`)
+- [x] CI (`.github/workflows/ci.yml`): gofmt / build / vet / `go test -race` / golangci-lint
+- [ ] optional ahead-of-time expander (`cmd/bisql-expand`) — **deferred**: inline partials
+      textually into a plain 2-way SQL file for CI `EXPLAIN`. Not required for the library
+      itself; revisit if wanted.
 
 ## Source cases to port from Komapper
 

@@ -265,6 +265,28 @@ func TestPartialRecursive(t *testing.T) {
 	}
 }
 
+// Statement.SQLWithArgs renders bound values inline (for snapshots/review, never execution).
+func TestSQLWithArgs(t *testing.T) {
+	tmpl, err := bisql.Parse("select * from person where name = /*name*/'x' and age > /*age*/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tmpl.Build(map[string]any{"name": "o'brien", "age": 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "select * from person where name = ? and age > ?"; stmt.SQL != want {
+		t.Errorf("SQL got %q", stmt.SQL)
+	}
+	if !reflect.DeepEqual(stmt.Args, []any{"o'brien", 20}) {
+		t.Errorf("Args got %#v", stmt.Args)
+	}
+	// single quotes are doubled; numbers render bare.
+	if want := "select * from person where name = 'o''brien' and age > 20"; stmt.SQLWithArgs != want {
+		t.Errorf("SQLWithArgs got %q", stmt.SQLWithArgs)
+	}
+}
+
 // A cyclic partial reference is reported rather than looping forever.
 func TestPartialCycle(t *testing.T) {
 	ld := bisql.NewLoader()
