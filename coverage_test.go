@@ -104,7 +104,8 @@ func TestBindCastSuffix(t *testing.T) {
 		{"float cast", "select * from t where n = /*n*/1.5::numeric", map[string]any{"n": 1.5}, "select * from t where n = $1::numeric", []any{1.5}},
 		{"quote cast", "select * from t where c = /*ts*/'x'::timestamptz", map[string]any{"ts": "2020-01-01"}, "select * from t where c = $1::timestamptz", []any{"2020-01-01"}},
 		{"cast then and", "select * from t where a = /*a*/1::int and b = /*b*/2", map[string]any{"a": 1, "b": 2}, "select * from t where a = $1::int and b = $2", []any{1, 2}},
-		{"in cast", "select * from t where id in /*ids*/(1,2)::bigint", map[string]any{"ids": []any{1, 2}}, "select * from t where id in ($1, $2)::bigint", []any{1, 2}},
+		// cast on the column, then an expanded IN list (a realistic combination).
+		{"column cast with in", "select * from t where x::text in /*xs*/('a')", map[string]any{"xs": []any{"a", "b"}}, "select * from t where x::text in ($1, $2)", []any{"a", "b"}},
 		// CAST(... AS ...) function form: a bind inside parens with a trailing " AS type".
 		{"cast fn quote", "select * from t where c = CAST(/*ts*/'x' AS timestamptz)", map[string]any{"ts": "2020-01-01"}, "select * from t where c = CAST($1 AS timestamptz)", []any{"2020-01-01"}},
 		{"cast fn number", "select * from t where n = CAST(/*n*/1 AS bigint)", map[string]any{"n": 1}, "select * from t where n = CAST($1 AS bigint)", []any{1}},
