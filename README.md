@@ -86,8 +86,13 @@ and retired = $2
 order by emp_no
 ```
 
-A template that is available as a string, rather than a file, is parsed with `bisql.Parse`
-instead of `bisql.ParseFile`. A `Statement` exposes the following members:
+A `Parser` is immutable and safe for concurrent use, so it is constructed once and reused
+across templates, as above. A template that is available as a string, rather than a file, is
+parsed with `p.Parse` instead of `p.ParseFile`; the top-level `bisql.Parse`, `bisql.ParseFile`,
+`bisql.Expand`, and `bisql.ExpandFile` functions are shortcuts that construct a single-use
+parser from the given options.
+
+A `Statement` exposes the following members:
 
 | Member            | Type     | Description                                                                       |
 |:------------------|:---------|:----------------------------------------------------------------------------------|
@@ -294,22 +299,6 @@ inspection with `EXPLAIN`:
 
 ```go
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
-```
-
-## Configuration reuse
-
-`bisql.Parse` and `bisql.Expand` are convenience wrappers that construct a single-use parser.
-When a dialect, evaluator, or loader is shared across many templates, construct a `Parser`
-once with `NewParser` and reuse it. A `Parser` is immutable and safe for concurrent use.
-
-```go
-p := bisql.NewParser(
-	bisql.WithDialect(dialect.PostgreSQL),
-	bisql.WithLoader(loader),
-)
-
-t1, err := p.Parse(srcA)
-t2, err := p.Parse(srcB) // identical configuration, without repeating options
 ```
 
 ## Authoring rules
