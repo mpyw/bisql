@@ -3,12 +3,9 @@
 ## Goal
 
 A **2-way SQL template engine for Go**: directives written as SQL comments, so a template is
-runnable as-is in a SQL client, while an application converts it to `(SQL, args)`. Syntax is
-inspired by Komapper's TEMPLATE API; semantics are bisql's **explicit model**.
-
-Background on Komapper's internals is in [`komapper-analysis.md`](./komapper-analysis.md);
-the historical Komapper syntax inventory (and where bisql diverges) is in
-[`komapper-template-features.md`](./komapper-template-features.md).
+runnable as-is in a SQL client, while an application converts it to `(SQL, args)`. The syntax
+is inspired by Komapper's TEMPLATE API; the semantics are bisql's **explicit model**. For the
+directive reference and authoring rules, see the [README](../README.md).
 
 ## Non-goals
 

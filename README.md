@@ -152,13 +152,14 @@ with `bisql.WithEvaluator`.
 ## Layout
 
 ```
-bisql            (root) Parse / Template / Statement / Option / Loader
+bisql            (root) Parse / Expand / Template / Statement / Option
+                 include: Loader + RegistryLoader / FSLoader / LoaderFunc / WithLoader
 dialect/         Dialect + placeholders (MySQL/PostgreSQL/Oracle/SQLServer) + literal format
 expr/            Evaluator interface + Scope (plug your own)
 internal/
   sqltmpl/{token,ast,lexer,parser,render,preprocess}   template layer
   exprlang/                                            default expr-lang evaluator
-docs/
+docs/design.md   design rationale (the explicit model)
 ```
 
 ## Development

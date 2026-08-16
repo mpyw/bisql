@@ -9,7 +9,8 @@ as-is in a client; an application converts it to `(SQL, args)`. Syntax is inspir
 Komapper's TEMPLATE API, but the **semantics are the explicit model** (below) — not a
 faithful Komapper port. Not an ORM, query builder, or connection manager.
 
-Read `docs/design.md` first (the design), then `docs/roadmap.md`.
+Read `docs/design.md` (the design rationale) and the README (directive reference +
+authoring rules).
 
 ## Design invariants (do not break)
 
