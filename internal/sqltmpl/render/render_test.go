@@ -135,10 +135,10 @@ func TestRender_For(t *testing.T) {
 	if res := renderTmpl(t, "x /*%for i in xs*/Y/*%end*/", expr.Scope{}, qmark); res.SQL != "x " {
 		t.Errorf("nil for: %q", res.SQL)
 	}
-	// _has_next builds a comma list without a trailing comma
-	res := renderTmpl(t, "/*%for c in cols*/z/*%if c_has_next*/, /*%end*//*%end*/", expr.Scope{"cols": []any{1, 2, 3}}, qmark)
+	// the `: 'sep'` clause emits the separator between iterations only (no trailing separator)
+	res := renderTmpl(t, "/*%for c in cols : ', '*/z/*%end*/", expr.Scope{"cols": []any{1, 2, 3}}, qmark)
 	if res.SQL != "z, z, z" {
-		t.Errorf("has_next list: %q", res.SQL)
+		t.Errorf("separator list: %q", res.SQL)
 	}
 	// non-nil non-iterable -> error
 	n, _ := parser.Parse("/*%for i in xs*/Y/*%end*/")
@@ -147,17 +147,17 @@ func TestRender_For(t *testing.T) {
 	}
 }
 
-// for saves and restores a pre-existing scope key shadowed by a helper name.
+// for saves and restores a pre-existing scope key shadowed by the loop variable.
 func TestRender_ForRestoresScope(t *testing.T) {
-	// A caller key named i_index is shadowed during the loop and must be restored after.
-	n, _ := parser.Parse("/*%for i in xs*/z/*%end*/[/*^i_index*/'x']")
-	res, err := Render(n, expr.Scope{"xs": []any{1, 2}, "i_index": "KEEP"},
+	// A caller key named i is shadowed by the loop variable during the loop and restored after.
+	n, _ := parser.Parse("/*%for i in xs*/z/*%end*/[/*^i*/'x']")
+	res, err := Render(n, expr.Scope{"xs": []any{1, 2}, "i": "KEEP"},
 		Config{Evaluator: keyEval{}, Placeholder: qmark, Literal: litFn})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.SQL != "zz[KEEP]" {
-		t.Errorf("got %q, want %q (i_index restored after loop)", res.SQL, "zz[KEEP]")
+		t.Errorf("got %q, want %q (i restored after loop)", res.SQL, "zz[KEEP]")
 	}
 }
 

@@ -218,9 +218,68 @@ func (p *parser) parseFor() error {
 	if expr == "" {
 		return p.errf("the iterable expression is not found in the for directive")
 	}
+	expr, sep := splitForSeparator(expr)
+	if expr == "" {
+		return p.errf("the iterable expression is not found in the for directive")
+	}
 	p.push(&forBlockReducer{loc: p.loc})
-	p.push(&forDirectiveReducer{loc: p.loc, token: p.tok, id: id, expr: expr})
+	p.push(&forDirectiveReducer{loc: p.loc, token: p.tok, id: id, expr: expr, sep: sep})
 	return nil
+}
+
+// splitForSeparator splits an optional trailing `: '<sep>'` clause off the for iterable
+// expression. The separator is a single-quoted string literal with ” escaping. It returns
+// the remaining iterable expression and the unescaped separator (empty when no clause is
+// present). A colon inside the iterable's own string literal is ignored.
+func splitForSeparator(expr string) (iter, sep string) {
+	colon := -1
+	inStr := false
+	for i := 0; i < len(expr); i++ {
+		switch {
+		case inStr:
+			if expr[i] == '\'' {
+				if i+1 < len(expr) && expr[i+1] == '\'' {
+					i++ // '' escape
+					continue
+				}
+				inStr = false
+			}
+		case expr[i] == '\'':
+			inStr = true
+		case expr[i] == ':':
+			colon = i
+		}
+	}
+	if colon < 0 {
+		return expr, ""
+	}
+	s, ok := unquoteSingle(strings.TrimSpace(expr[colon+1:]))
+	if !ok {
+		return expr, ""
+	}
+	return strings.TrimSpace(expr[:colon]), s
+}
+
+// unquoteSingle unquotes a single-quoted string literal ('...' with ” escaping). It reports
+// false when s is not exactly one complete such literal.
+func unquoteSingle(s string) (string, bool) {
+	if len(s) < 2 || s[0] != '\'' || s[len(s)-1] != '\'' {
+		return "", false
+	}
+	inner := s[1 : len(s)-1]
+	var b strings.Builder
+	for i := 0; i < len(inner); i++ {
+		if inner[i] == '\'' {
+			if i+1 < len(inner) && inner[i+1] == '\'' {
+				b.WriteByte('\'')
+				i++
+				continue
+			}
+			return "", false // an unescaped quote ends the literal early
+		}
+		b.WriteByte(inner[i])
+	}
+	return b.String(), true
 }
 
 func (p *parser) reduceUntil(pred func(reducer) bool) error {

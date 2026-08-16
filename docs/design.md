@@ -40,9 +40,15 @@ of evaluated branches.
 
 The cost of this model is an authoring obligation: the template must anchor its dynamic
 fragments so that no separator is ever left dangling (`1 = 1` / `1 = 0`, a trailing sort key,
-connectors placed inside `/*%if*/`, and a conditional separator `/*%if x_has_next*/,/*%end*/`
-in loops). These obligations are specified in the README under "Authoring rules". The approach
-is the established MyBatis `1 = 1` convention, applied uniformly.
+connectors placed inside `/*%if*/`, and the `/*%for … : 'sep'*/` separator clause for loops).
+These obligations are specified in the README under "Authoring rules". The approach is the
+established MyBatis `1 = 1` convention, applied uniformly.
+
+The `/*%for*/` separator is the one place bisql emits build-time text that is absent from the
+raw paste. It is not general raw-text emission (the removed `/*# */` embed): it is confined to
+a loop's inter-iteration separator, which is exactly the construct that cannot otherwise be
+made two-way — a list with no anchor position (a multi-row `VALUES` clause) has a separator in
+the built output but must have none when the single raw body is pasted into a client.
 
 Three consequences follow directly from verbatim emission:
 
@@ -71,7 +77,7 @@ rendering.
 | `/* expr */literal`                                 | Bind placeholder; `literal` is the two-way test value.              |
 | `/*^ expr */literal`                                | Inline SQL literal (dialect-formatted; injection-prone).            |
 | `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/`  | Conditional selection of a branch.                                  |
-| `/*%for x in xs*/ … /*%end*/`                       | Iteration; exposes `x_index` and `x_has_next` (usable in `/*%if*/`). |
+| `/*%for x in xs*/ … /*%end*/`                       | Iteration; an optional `: 'sep'` clause emits a separator between iterations. |
 | `/*%! … */`                                         | Parser comment (removed); also hosts `@include`.                    |
 | `/*%! @include name */`                             | Preprocessor directive; splices a static fragment.                  |
 

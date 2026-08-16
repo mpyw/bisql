@@ -11,7 +11,7 @@ var seeds = []string{
 	"select * from t where a = /*a*/'x' and b > /*b*/0",
 	"select id from t where id in /*ids*/(1, 2)",
 	"select 1 /*%if a*/x/*%elseif b*/y/*%else*/z/*%end*/",
-	"select /*%for c in cols*/x/*%if c_has_next*/,/*%end*//*%end*/ from t",
+	"select /*%for c in cols : ', '*//*c*/0/*%end*/ id from t",
 	"select 1 /** c */ /*# c2 */ -- line\n from `t`",
 	"a = /*a*/1::bigint",
 	"'{}' \"id\" `x`",

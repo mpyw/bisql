@@ -26,6 +26,9 @@ func TestParse_Lossless(t *testing.T) {
 		// for-loop with a 1=0 OR-anchor and a self-contained `or ...` body: raw text is
 		// `where 1 = 0 or name like '%x%'`, which is valid.
 		"select * from t where 1 = 0 /*%for kw in kws*/or name like /*kw*/'%x%'/*%end*/",
+		// for-loop with a `: 'sep'` separator clause (build-only; the directive is a comment
+		// when pasted raw, so the raw text is a single-element list `select 0 id from t`).
+		"select /*%for c in cols : ', '*//*c*/0/*%end*/ id from t",
 		"select /** keep */ /*# also a comment now */ 1 -- trailing\nfrom t",
 		"select * from t where a = /*a*/1::bigint and b = ANY(/*b*/'{}'::int[])",
 		"select `a`, \"b\", 'c/*x*/' from t",

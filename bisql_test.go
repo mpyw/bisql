@@ -139,7 +139,6 @@ func TestAnchorIdioms(t *testing.T) {
 	})
 }
 
-// for-loop builds a comma list with an anchor + /*%if x_has_next*/,/*%end*/ (no _next_*).
 func TestForLoop(t *testing.T) {
 	run(t, []buildCase{
 		{
@@ -150,15 +149,36 @@ func TestForLoop(t *testing.T) {
 			args:   []any{"%a%", "%b%"},
 		},
 		{
-			name:   "has_next comma list",
-			tmpl:   "select /*%for c in cols*//*c*/0/*%if c_has_next*/, /*%end*//*%end*/",
+			name:   "separator between iterations",
+			tmpl:   "select /*%for c in cols : ', '*//*c*/0/*%end*/",
 			params: map[string]any{"cols": []any{1, 2, 3}},
 			sql:    "select ?, ?, ?",
 			args:   []any{1, 2, 3},
 		},
 		{
+			name:   "separator with a single element has none",
+			tmpl:   "select /*%for c in cols : ', '*//*c*/0/*%end*/",
+			params: map[string]any{"cols": []any{1}},
+			sql:    "select ?",
+			args:   []any{1},
+		},
+		{
+			name:   "multi-row insert via INSERT ... SELECT + union all",
+			tmpl:   "insert into t (a, b) select 0, '' where 1 = 0 /*%for e in rows : ' '*/union all select /*e.a*/0, /*e.b*/1/*%end*/",
+			params: map[string]any{"rows": []any{map[string]any{"a": 1, "b": 2}, map[string]any{"a": 3, "b": 4}}},
+			sql:    "insert into t (a, b) select 0, '' where 1 = 0 union all select ?, ? union all select ?, ?",
+			args:   []any{1, 2, 3, 4},
+		},
+		{
+			name:   "escaped quote in separator ('''' -> a single quote)",
+			tmpl:   "/*%for c in cols : ''''*//*c*/0/*%end*/",
+			params: map[string]any{"cols": []any{1, 2}},
+			sql:    "?'?",
+			args:   []any{1, 2},
+		},
+		{
 			name:   "empty for renders nothing",
-			tmpl:   "where 1 = 0 /*%for kw in kws*/or x/*%end*/",
+			tmpl:   "where 1 = 0 /*%for kw in kws : ', '*/or x/*%end*/",
 			params: map[string]any{},
 			sql:    "where 1 = 0 ",
 		},

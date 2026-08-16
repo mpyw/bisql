@@ -20,7 +20,10 @@ authoring rules).
 - **Remove nothing implicitly.** The renderer emits text **verbatim**; it only evaluates
   directives and drops `/*%! ... */` parser comments. No empty-clause removal, no dangling
   `AND`/`OR` cleanup, no whitespace normalization. Predictability over magic. The author
-  anchors dynamic SQL (see Authoring rules).
+  anchors dynamic SQL (see Authoring rules). The sole build-time text not present in the body
+  is the `/*%for … : 'sep'*/` separator, emitted between iterations — a bounded, opt-in
+  exception (not general raw-text emission), and absent from a raw paste since the directive is
+  a comment.
 - **Placeholder numbering is a single renderer-global counter** (`renderer.nargs`), not a
   per-state length — binds in unrendered branches/loops are never counted, so numbering is
   gap-free across every dialect (`$n`/`:n`/`@pn`).
@@ -43,12 +46,12 @@ The engine cleans nothing, so templates must anchor:
 - WHERE/HAVING: `1 = 1` / `1 = 0` anchor; conditions carry a leading `and`/`or`.
 - ORDER BY: trailing stable key (`id`). SELECT/SET column lists: base column + leading comma
   inside `/*%if*/` (whitelist).
-- Lists via `/*%for*/`: keep the separator a **literal in the loop body** and absorb it with an
-  anchor (trailing separator + trailing key, or leading separator + leading key). A conditional
-  `/*%if x_has_next*/,/*%end*/` separator is **not** two-way (trailing comma when pasted raw);
-  it is only a fallback for anchorless lists. There is no `_next_comma` helper and none is
-  needed. Multi-row INSERT: use `INSERT … SELECT` with a zero-row `select … where 1 = 0` anchor
-  and `union all` inside the loop (a `VALUES` list cannot be anchored).
+- Lists via `/*%for*/`: declare the separator with the `: 'sep'` clause
+  (`/*%for x in xs : ', '*/`). It is emitted between iterations only and is build-only (the
+  directive is a comment in a raw paste), so anchorless lists — a multi-row `VALUES` clause, a
+  function-arg list — stay two-way. The loop exposes **no** derived variables (no `_index` /
+  `_has_next` / `_next_comma`). A `VALUES` list built this way must be non-empty; for a
+  possibly-empty list use `INSERT … SELECT` with a zero-row `select … where 1 = 0` + `union all`.
 - JOIN/UNION: put the connector inside the `/*%if*/`.
 - Escape quotes by **doubling** (`''` `""` `` `` ``); backslash escapes are not recognized.
 - `/* ... */` is a bind directive → a plain comment must start with a non-identifier char

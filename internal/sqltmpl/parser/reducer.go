@@ -110,12 +110,13 @@ type forDirectiveReducer struct {
 	token string
 	id    string
 	expr  string
+	sep   string
 	nodes []ast.Node
 }
 
 func (r *forDirectiveReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
 func (r *forDirectiveReducer) reduce() (ast.Node, error) {
-	return ast.ForDirective{Loc: r.loc, Token: r.token, Identifier: r.id, Expression: r.expr, Nodes: r.nodes}, nil
+	return ast.ForDirective{Loc: r.loc, Token: r.token, Identifier: r.id, Expression: r.expr, Separator: r.sep, Nodes: r.nodes}, nil
 }
 
 // --- block reducers ---

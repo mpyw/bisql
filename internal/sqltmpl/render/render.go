@@ -252,36 +252,26 @@ func (r *renderer) visitFor(node ast.ForBlock) error {
 		return fmt.Errorf("bisql/render: for expression %q is not iterable (got %T)", node.For.Expression, v)
 	}
 	id := node.For.Identifier
-	// The loop variable and the helper variables _index / _has_next shadow the scope for
-	// the loop's duration; save any pre-existing values and restore them afterwards. Only
-	// _index and _has_next are exposed (usable inside /*%if*/); there is no _next_comma etc.
-	// since raw-text emission (/*# */) was removed — build separated lists with an anchor
-	// plus /*%if x_has_next*/,/*%end*/.
-	names := []string{id, id + "_index", id + "_has_next"}
-	saved := make(map[string]any, len(names))
-	had := make(map[string]bool, len(names))
-	for _, n := range names {
-		if val, ok := r.scope[n]; ok {
-			saved[n] = val
-			had[n] = true
-		}
-	}
+	// The loop variable shadows the scope for the loop's duration; save any pre-existing value
+	// and restore it afterwards. The optional separator is emitted between iterations only, so
+	// a raw-pasted template (whose /*%for ... : 'sep'*/ directive is a comment) shows a single
+	// body with no separator — which keeps anchorless lists such as multi-row VALUES two-way.
+	saved, had := r.scope[id]
 	for i, e := range elems {
+		if i > 0 {
+			r.emit(node.For.Separator)
+		}
 		r.scope[id] = e
-		r.scope[id+"_index"] = i
-		r.scope[id+"_has_next"] = i < len(elems)-1
 		for _, c := range node.For.Nodes {
 			if err := r.visit(c); err != nil {
 				return err
 			}
 		}
 	}
-	for _, n := range names {
-		if had[n] {
-			r.scope[n] = saved[n]
-		} else {
-			delete(r.scope, n)
-		}
+	if had {
+		r.scope[id] = saved
+	} else {
+		delete(r.scope, id)
 	}
 	return nil
 }

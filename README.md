@@ -147,7 +147,7 @@ These directives are evaluated during rendering and produce the SQL and its argu
 | `/* expr */literal`                                 | **Bind.** Emits a placeholder and binds the value of `expr` as an argument, replacing the trailing `literal`. That `literal` is the two-way sample value, used only when the raw template is run in a client and ignored at build time. |
 | `/*^ expr */literal`                                | **Literal.** Inlines the value of `expr` into the SQL as a formatted literal, replacing the trailing `literal`, instead of binding it. For trusted values that cannot be parameterized (for example, DDL); injection-prone. |
 | `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/`  | **Conditional.** Renders the first branch whose condition is true, or the `/*%else*/` branch if none is; the other branches are omitted. |
-| `/*%for x in xs*/ … /*%end*/`                       | **Iteration.** Renders the body once for each element of `xs`, bound to `x`; exposes `x_index` and `x_has_next`. |
+| `/*%for x in xs*/ … /*%end*/`                       | **Iteration.** Renders the body once for each element of `xs`, bound to `x`. An optional `: 'sep'` clause (`/*%for x in xs : ', '*/`) emits `sep` between iterations. |
 
 ### Preprocessor directives
 
@@ -163,20 +163,29 @@ hints (`/*+ … */`) — pass through to the output unchanged.
 
 ### Conditionals and iteration
 
-The loop variable of `/*%for*/` is accompanied by two derived variables that are valid inside
-nested directives: `<name>_index` (zero-based position) and `<name>_has_next` (true for every
-element except the last). The following fragment uses `_has_next` to place a separator between
-elements; for `ids` of length three, its built output is `$1, $2, $3`:
+A `/*%for*/` may declare a separator with a trailing `: 'sep'` clause. The separator is
+emitted **between iterations only** — never before the first element or after the last — and
+solely at build time. Because the `/*%for … : 'sep'*/` directive is a comment when the raw
+template is pasted into a client, the raw text contains a single body with no separator. This
+is what keeps a list with no anchor position — a multi-row `VALUES` clause, a function-argument
+list — two-way:
 
 ```sql
-/*%for id in ids*//*id*/0/*%if id_has_next*/, /*%end*//*%end*/
+insert into audit (emp_no, action)
+values /*%for e in entries : ', '*/(/*e.empNo*/0, /*e.action*/'x')/*%end*/
 ```
 
+| Context               | Result                                     |
+|:----------------------|:-------------------------------------------|
+| Build (two entries)   | `values ($1, $2), ($3, $4)`                |
+| Raw paste in a client | `values (0, 'x')` — a valid single-row `VALUES` |
+
+The separator value is a single-quoted string literal, with `''` for a literal quote.
+
 > [!NOTE]
-> A conditional separator like this leaves a trailing comma when the raw template is pasted
-> into a client, so it is not two-way on its own. To build a **runnable** list, keep the
-> separator as a literal in the loop body and absorb it with an anchor; see
-> [Anchoring dynamic fragments](#anchoring-dynamic-fragments).
+> A `VALUES` list built this way must have at least one row (an empty list renders `values`
+> with nothing after it). For a list that may be empty, use `INSERT … SELECT` with a zero-row
+> anchor instead (see [Anchoring dynamic fragments](#anchoring-dynamic-fragments)).
 
 > [!NOTE]
 > `/*%for*/` iterates over **values**, which are bound as parameters. It does not emit column
@@ -335,8 +344,8 @@ left dangling.
 | `WHERE` / `HAVING`| Introduce a constant predicate (`1 = 1` for `AND` chains, `1 = 0` for `OR` chains); each condition carries a leading `and`/`or`. |
 | `ORDER BY`        | Terminate the list with a stable key (for example, `id`).                               |
 | `SELECT` / `SET` column list | Begin with a fixed column and add each optional, whitelisted column with a leading comma inside a `/*%if*/`. |
-| List via `/*%for*/` | Keep the separator as a literal in the loop body and let an anchor absorb it: a trailing separator with a trailing key, or a leading separator with a leading key. |
-| Multi-row `INSERT` | A `VALUES` list has no anchor position; build the rows with `INSERT … SELECT`, anchored by a zero-row `select … where 1 = 0` and a `union all` inside the loop. |
+| List via `/*%for*/` | Declare the separator with the `: 'sep'` clause; it is emitted between iterations only, so no dangling separator remains and no anchor is required. |
+| Empty-safe row list | A `VALUES` list built with `: ', '` must be non-empty; for a possibly-empty list, use `INSERT … SELECT` anchored by a zero-row `select … where 1 = 0` and `union all`. |
 | `JOIN` / `UNION`  | Place the connector inside the `/*%if*/` block so that each fragment is self-contained. |
 
 ```sql
@@ -355,15 +364,15 @@ order by /*%if byName*/name, /*%end*/emp_no
 select emp_no /*%if withName*/, name/*%end*/ /*%if withDept*/, dept_no/*%end*/
 from employees
 
--- Value list: the comma is a literal in the loop body, absorbed by the trailing key `id`.
-select /*%for c in cols*//*c*/0, /*%end*/id
-from t
+-- Row list: the : ', ' separator is emitted between iterations only (build-only, two-way).
+insert into audit (emp_no, action)
+values /*%for e in entries : ', '*/(/*e.empNo*/0, /*e.action*/'x')/*%end*/
 
--- Multi-row INSERT: a VALUES list cannot be anchored, so build the rows with INSERT ... SELECT,
--- anchored by a zero-row select and a union all inside the loop.
+-- Empty-safe variant: INSERT ... SELECT anchored by a zero-row select, for a list that may
+-- have no rows (a VALUES list would render an invalid empty `values`).
 insert into audit (emp_no, action)
 select 0, '' where 1 = 0
-/*%for e in entries*/union all select /*e.empNo*/0, /*e.action*/'x'/*%end*/
+/*%for e in entries : ' '*/union all select /*e.empNo*/0, /*e.action*/'x'/*%end*/
 ```
 
 > [!IMPORTANT]
