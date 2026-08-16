@@ -11,12 +11,15 @@ Build up milestone by milestone, locking behavior with tests. Each milestone kee
 - [x] public API types and signatures (compile-clean, bodies return not-implemented)
 - [x] TDD spec (`bisql_test.go`, skipped per milestone)
 
-## M1: lexer
+## M1: lexer ✅
 
-- [ ] `internal/sqltmpl/lexer`
-- [ ] branch right after `/*` to detect directive kinds
-- [ ] recognize clause keywords / AND / OR / set operators / parens / string literals
-- [ ] `lexer_test.go` (port cases from Komapper's `SqlTokenizerTest`)
+- [x] `internal/sqltmpl/lexer`
+- [x] branch right after `/*` to detect directive kinds
+- [x] recognize clause keywords / AND / OR / set operators / parens / string literals
+- [x] `lexer_test.go` (ported from Komapper's `SqlTokenizerTest`)
+
+Note: added `token.Illegal` + `Lexer.Err()` for lexing errors; `Location` reports the
+start of each token (bisql convention; Komapper reports the post-consume position).
 
 ## M2: parser
 

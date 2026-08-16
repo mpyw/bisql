@@ -10,6 +10,8 @@ type Kind int
 
 const (
 	EOF Kind = iota
+	// Illegal marks a lexing error; the lexer stops and exposes the error via Err().
+	Illegal
 	EOL
 	Space
 
