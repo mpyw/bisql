@@ -111,3 +111,23 @@ correctness bugs, plus added the missing complex E2E coverage:
 - `expression/ExprTokenizerTest.kt`, `expression/ExprParserTest.kt`
 - `TwoWayTemplateStatementBuilderTest.kt` (rich source of 2-way behavior)
 - `ExprEvaluatorTest.kt` (expression semantics)
+
+## Post-M6: pivot to the explicit model
+
+bisql dropped the Komapper-style implicit-removal machinery (the `available` flag, clause/
+connector/set tokenization, whitespace normalization) in favor of the **explicit model**:
+the renderer emits text verbatim and authors anchor their dynamic SQL. See
+[`design.md`](./design.md). Summary of the change:
+
+- **Removed:** empty-clause removal, dangling `AND`/`OR` removal, whitespace normalization,
+  clause/keyword lexing, `/*> */` partial, `/*# */` embedded, the `_next_comma`/`_next_and`/
+  `_next_or` for-helpers.
+- **Added / kept:** verbatim render; renderer-global placeholder numbering; bind expansion
+  keyed on the test-literal shape (`(...)` list vs. scalar-as-array for `= ANY`); the
+  `/*%! @include name */` text preprocessor with a pluggable `Loader` interface
+  (`RegistryLoader` / `FSLoader` / `LoaderFunc`, no default) + `Expand`; quote handling for
+  `'` `"` `` ` ``; `::type` / `CAST(.. AS ..)`; for-helpers `x_index` / `x_has_next`;
+  nil-`/*%if*/`-is-falsy; nil-`/*%for*/`-is-zero-iterations; scope save/restore.
+- **Tests:** whole suite rewritten to the explicit model; e2e goldens regenerated
+  (`dynamic_where`, `keyword_search`, `all_in_one` × 4 dialects); real-Postgres integration
+  test under the `integration` build tag.

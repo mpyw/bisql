@@ -1,3 +1,5 @@
 select * from person
-where
- age > 20
+where 1 = 1
+
+and age > 20
+

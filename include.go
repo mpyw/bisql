@@ -3,77 +3,61 @@ package bisql
 import (
 	"fmt"
 	"io/fs"
-	"path"
-	"strings"
-
-	"github.com/mpyw/bisql/internal/sqltmpl/parser"
-	"github.com/mpyw/bisql/internal/sqltmpl/preprocess"
 )
 
-// Loader manages the fragments referenced by @include directives.
-//
-// An /*%! @include name */ directive is expanded textually (before lexing) into the named
-// fragment's raw text, recursively — a preprocessing step that yields a fully expanded,
-// still-2-way template. Register the fragments up front (Register / LoadFS), then Parse.
-// The resulting Template is immutable and safe for concurrent Build calls.
-type Loader struct {
-	cfg       config
+// Loader resolves an @include fragment name to its raw template text. Implement it to load
+// fragments from anywhere (a DB table, a remote store, a cache, ...). bisql ships two
+// implementations, RegistryLoader (in-memory) and FSLoader (fs.FS); there is no default —
+// pass one with WithLoader when a template uses /*%! @include ... */.
+type Loader interface {
+	Load(name string) (string, error)
+}
+
+// LoaderFunc adapts a function to Loader.
+type LoaderFunc func(name string) (string, error)
+
+// Load implements Loader.
+func (f LoaderFunc) Load(name string) (string, error) { return f(name) }
+
+// RegistryLoader is an in-memory Loader: fragments are registered by name.
+type RegistryLoader struct {
 	fragments map[string]string
 }
 
-// NewLoader creates a Loader.
-func NewLoader(opts ...Option) *Loader {
-	c := defaultConfig()
-	for _, o := range opts {
-		o(&c)
-	}
-	return &Loader{cfg: c, fragments: map[string]string{}}
+// NewRegistry creates an empty RegistryLoader.
+func NewRegistry() *RegistryLoader {
+	return &RegistryLoader{fragments: map[string]string{}}
 }
 
-// Register registers a named fragment.
-func (l *Loader) Register(name, template string) { l.fragments[name] = template }
-
-// LoadFS loads files matching glob from fsys and registers each under its path with the
-// extension removed as the fragment name (e.g. "sql/active.sql" -> "sql/active").
-func (l *Loader) LoadFS(fsys fs.FS, glob string) error {
-	matches, err := fs.Glob(fsys, glob)
-	if err != nil {
-		return fmt.Errorf("bisql: LoadFS glob %q: %w", glob, err)
-	}
-	for _, m := range matches {
-		b, err := fs.ReadFile(fsys, m)
-		if err != nil {
-			return fmt.Errorf("bisql: LoadFS read %q: %w", m, err)
-		}
-		name := strings.TrimSuffix(m, path.Ext(m))
-		l.Register(name, string(b))
-	}
-	return nil
+// Register adds (or replaces) a named fragment and returns the loader for chaining.
+func (r *RegistryLoader) Register(name, template string) *RegistryLoader {
+	r.fragments[name] = template
+	return r
 }
 
-func (l *Loader) resolve(name string) (string, error) {
-	src, ok := l.fragments[name]
+// Load implements Loader.
+func (r *RegistryLoader) Load(name string) (string, error) {
+	src, ok := r.fragments[name]
 	if !ok {
 		return "", fmt.Errorf("bisql: unknown @include fragment %q", name)
 	}
 	return src, nil
 }
 
-// Expand runs the @include preprocessor and returns the fully expanded template text (the
-// resolved, still-2-way SQL). Useful to snapshot or run through EXPLAIN ahead of time.
-func (l *Loader) Expand(src string) (string, error) {
-	return preprocess.Expand(src, l.resolve)
+// FSLoader loads fragments from an fs.FS (e.g. embed.FS, os.DirFS). The @include name is the
+// file's path within the FS; the extension is part of the name (e.g. @include sql/active.sql).
+type FSLoader struct {
+	fsys fs.FS
 }
 
-// Parse expands @include directives against this Loader's fragments, then parses.
-func (l *Loader) Parse(src string) (*Template, error) {
-	expanded, err := preprocess.Expand(src, l.resolve)
+// NewFSLoader creates an FSLoader over fsys.
+func NewFSLoader(fsys fs.FS) *FSLoader { return &FSLoader{fsys: fsys} }
+
+// Load implements Loader.
+func (l *FSLoader) Load(name string) (string, error) {
+	b, err := fs.ReadFile(l.fsys, name)
 	if err != nil {
-		return nil, err
+		return "", fmt.Errorf("bisql: @include %q: %w", name, err)
 	}
-	root, err := parser.Parse(expanded)
-	if err != nil {
-		return nil, err
-	}
-	return &Template{root: root, dialect: l.cfg.dialect, evaluator: l.cfg.evaluator}, nil
+	return string(b), nil
 }

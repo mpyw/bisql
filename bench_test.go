@@ -10,8 +10,9 @@ import (
 const benchTmpl = `
 select emp_no, first_name, last_name
 from employees
-where /*%if name != null*/first_name = /*name*/'x'/*%end*/
-  /*%if depts != null*/and dept_no in /*depts*/('d001')/*%end*/
+where 1 = 1
+/*%if name != null*/and first_name = /*name*/'x'/*%end*/
+/*%if depts != null*/and dept_no in /*depts*/('d001')/*%end*/
 order by emp_no`
 
 func BenchmarkBuild(b *testing.B) {
@@ -29,30 +30,29 @@ func BenchmarkBuild(b *testing.B) {
 	}
 }
 
-// A parsed Template is immutable and safe for concurrent Build calls. Run with -race.
+// A parsed Template is immutable and safe for concurrent Build calls (run with -race).
 func TestTemplateConcurrentBuild(t *testing.T) {
 	tmpl, err := bisql.Parse(benchTmpl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const goroutines = 16
 	var wg sync.WaitGroup
-	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
-		go func(g int) {
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func() {
 			defer wg.Done()
 			for i := 0; i < 200; i++ {
 				stmt, err := tmpl.Build(map[string]any{"name": "Georgi", "depts": []any{"d001"}})
 				if err != nil {
-					t.Errorf("goroutine %d: %v", g, err)
+					t.Errorf("build: %v", err)
 					return
 				}
 				if len(stmt.Args) != 2 {
-					t.Errorf("goroutine %d: got %d args, want 2", g, len(stmt.Args))
+					t.Errorf("got %d args, want 2", len(stmt.Args))
 					return
 				}
 			}
-		}(g)
+		}()
 	}
 	wg.Wait()
 }

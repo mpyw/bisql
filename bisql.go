@@ -31,12 +31,13 @@ type Statement struct {
 	SQLWithArgs string
 }
 
-// Option adjusts Parse / NewLoader.
+// Option adjusts Parse / Expand.
 type Option func(*config)
 
 type config struct {
 	dialect   dialect.Dialect
 	evaluator expr.Evaluator
+	loader    Loader
 }
 
 func defaultConfig() config {
@@ -49,15 +50,29 @@ func WithDialect(d dialect.Dialect) Option { return func(c *config) { c.dialect 
 // WithEvaluator swaps the expression evaluator (default: the built-in one).
 func WithEvaluator(e expr.Evaluator) Option { return func(c *config) { c.evaluator = e } }
 
-// Parse parses a template string. Use Loader.Parse when the template uses @include
-// directives; a bare Parse rejects any /*%! @include ... */ (there are no fragments to
-// resolve).
+// WithLoader sets how /*%! @include name */ directives are resolved. There is no default:
+// a template that uses @include must be parsed with a Loader (RegistryLoader, FSLoader, a
+// LoaderFunc, or your own), otherwise @include is an error.
+func WithLoader(l Loader) Option { return func(c *config) { c.loader = l } }
+
+// resolver returns the preprocess resolver for c's loader (or one that rejects @include).
+func (c config) resolver() func(string) (string, error) {
+	if c.loader == nil {
+		return func(name string) (string, error) {
+			return "", fmt.Errorf("bisql: @include %q requires a Loader (pass bisql.WithLoader)", name)
+		}
+	}
+	return c.loader.Load
+}
+
+// Parse parses a template string, expanding any /*%! @include ... */ against the loader set
+// with WithLoader (absent a loader, @include is an error).
 func Parse(src string, opts ...Option) (*Template, error) {
 	c := defaultConfig()
 	for _, o := range opts {
 		o(&c)
 	}
-	expanded, err := preprocess.Expand(src, noLoaderResolve)
+	expanded, err := preprocess.Expand(src, c.resolver())
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +83,14 @@ func Parse(src string, opts ...Option) (*Template, error) {
 	return &Template{root: root, dialect: c.dialect, evaluator: c.evaluator}, nil
 }
 
-func noLoaderResolve(name string) (string, error) {
-	return "", fmt.Errorf("bisql: @include %q requires a Loader (use bisql.NewLoader and Register the fragment)", name)
+// Expand runs only the @include preprocessor and returns the fully expanded, still-2-way
+// template text (useful to snapshot or run through EXPLAIN ahead of time).
+func Expand(src string, opts ...Option) (string, error) {
+	c := defaultConfig()
+	for _, o := range opts {
+		o(&c)
+	}
+	return preprocess.Expand(src, c.resolver())
 }
 
 // Build assembles (SQL, Args) from the given parameters, which may be a map[string]any,

@@ -4,88 +4,82 @@ Guidance for Claude Code / contributors working in this repository.
 
 ## What this is
 
-A **2-way SQL template engine for Go**, syntax-compatible with Komapper's (Kotlin)
-TEMPLATE API, adding a **first-class include** via the Komapper partial syntax
-(`/*> name */`). It only converts a template into `(SQL, args)`. It is not an ORM, query
-builder, or connection manager.
+A **2-way SQL template engine for Go**. Directives are SQL comments, so a template runs
+as-is in a client; an application converts it to `(SQL, args)`. Syntax is inspired by
+Komapper's TEMPLATE API, but the **semantics are the explicit model** (below) — not a
+faithful Komapper port. Not an ORM, query builder, or connection manager.
 
-Read first:
-
-1. `docs/komapper-analysis.md` — how Komapper works internally (**required**)
-2. `docs/komapper-template-features.md` — full syntax inventory = the TDD backlog
-3. `docs/design.md` — bisql's design decisions
-4. `docs/roadmap.md` — milestones M0–M6
+Read `docs/design.md` first (the design), then `docs/roadmap.md`.
 
 ## Design invariants (do not break)
 
-- **Do not parse SQL as a grammar.** Only recognize clause keywords and directives
-  (shallow structural tokenization). The SQL body passes through as opaque tokens.
-- **The heart of 2-way SQL is the `available` flag** (`internal/sqltmpl/render`):
-  - only real tokens (Word/Other) set `available = true`;
-  - a clause emits its keyword only when its body is available (drops empty clauses);
-    Select/From are always kept;
-  - AND/OR emits its keyword only when preceding content is available (drops dangling
-    connectors);
-  - blanks (Space/Eol) are buffered and flushed so removed content leaves no stray space.
-- **Expansion = re-parse and splice, recursively.** Both `/*> name */` (partial) and
-  `/*# expr */` (embedded value) resolve their content to template text, parse it into
-  nodes, and splice those in — so directives/binds inside expand too, to arbitrary depth.
-  Never fall back to raw-text embedding (that is Komapper's `/*# */` weakness). The two
-  differ only in **source**: a partial names a static, loader-registered fragment; an
-  embedded value evaluates a runtime scope expression (hence an injection surface — only
-  trusted text should flow through it). Shared machinery bounds depth (`DefaultMaxDepth`)
-  and detects partial-name cycles.
-- **Two layers.** Keep the SQL template layer (`internal/sqltmpl`) and the expression
-  layer (`internal/exprlang` + public `expr`) separate.
+- **Do not parse SQL as a grammar.** The lexer recognizes only directive comments, plain
+  comments, string/identifier quotes (`'` `"` `` ` ``), and parentheses. Everything else —
+  including former keywords like `select`/`where`/`and`/`union` — is opaque `Word`/`Other`.
+- **Remove nothing implicitly.** The renderer emits text **verbatim**; it only evaluates
+  directives and drops `/*%! ... */` parser comments. No empty-clause removal, no dangling
+  `AND`/`OR` cleanup, no whitespace normalization. Predictability over magic. The author
+  anchors dynamic SQL (see Authoring rules).
+- **Placeholder numbering is a single renderer-global counter** (`renderer.nargs`), not a
+  per-state length — binds in unrendered branches/loops are never counted, so numbering is
+  gap-free across every dialect (`$n`/`:n`/`@pn`).
+- **IN-expansion is keyed on the bind's test-literal shape**, not the value type: a `(...)`
+  test expands to a placeholder list; a scalar test binds the value as-is (a slice becomes
+  one array parameter, for Postgres `= ANY`).
+- **`@include` is a text preprocessor** (`internal/sqltmpl/preprocess`), run before lexing:
+  recursive, cycle-detected, string/comment-aware. It is the *only* composition mechanism
+  (there is no raw-text embed / partial directive anymore).
+- **Two layers.** Keep the SQL template layer (`internal/sqltmpl`) and the expression layer
+  (`internal/exprlang` + public `expr`) separate.
+
+## Authoring rules (mirror of README — keep in sync)
+
+The engine cleans nothing, so templates must anchor:
+
+- WHERE/HAVING: `1 = 1` / `1 = 0` anchor; conditions carry a leading `and`/`or`.
+- ORDER BY: trailing stable key (`id`). SELECT/SET lists: base anchor + leading comma, or a
+  `/*%for*/` + `/*%if x_has_next*/,/*%end*/` (there is **no** `_next_comma` helper).
+- JOIN/UNION: put the connector inside the `/*%if*/`.
+- Escape quotes by **doubling** (`''` `""` `` `` ``); backslash escapes are not recognized.
+- `/* ... */` is a bind directive → a plain comment must start with a non-identifier char
+  (`/** ... */`); `/*%! ... */` is a stripped parser comment.
+- Dynamic identifiers = whitelisted `/*%if*/` toggles (no raw-text substitution).
+- Portability: `1=1` universal; `true`/`false`, `= ANY(array)`, `order by null` are
+  dialect-specific.
 
 ## Package layout (fine-grained on purpose)
 
-Namespace hygiene matters here. Split aggressively; prefer a small package with short
-identifiers over a big package with prefixed names (e.g. `token.Word`, not `tokWord`).
-
 ```
-bisql            (root) Parse / Template / Statement / Option / Loader
-dialect/         Dialect, Placeholder, MySQL/PostgreSQL/Oracle/SQLServer
-expr/            Evaluator interface, Scope (public, so callers can plug their own)
+bisql            (root) Parse / Expand / Template / Statement / Option
+                 include: Loader interface + RegistryLoader / FSLoader / LoaderFunc / WithLoader
+dialect/         Dialect, Placeholder, Literal, MySQL/PostgreSQL/Oracle/SQLServer
+expr/            Evaluator interface, Scope (public: callers can plug their own)
 internal/
   sqltmpl/
     token/       Kind + kind consts
     ast/         Node + node types + Location
-    lexer/       Lexer
-    parser/      Parse -> ast.Node
-    render/      Render (the available-flag evaluator)
-  exprlang/      default expression evaluator (thin wrapper over github.com/expr-lang/expr)
-docs/
+    lexer/       Lexer (directive scanner over opaque text)
+    parser/      Parse -> ast.Node (reducer-stack for blocks + bind test literals)
+    render/      Render (verbatim emit; the heart of the explicit model)
+    preprocess/  @include text preprocessor
+  exprlang/      default evaluator (wraps github.com/expr-lang/expr)
 ```
 
-- Public sub-packages sit at the top level with clean import paths (`.../dialect`,
-  `.../expr`); private ones under `internal/`. (No `pkg/` — the convention is debated and
-  would only add a redundant path segment.)
-- The root package exposes only `Parse / Template.Build / Statement / Loader / Option`.
-  Internal token/ast types must not leak into the public API.
-
-## How to proceed
-
-- **Lock behavior with tests per milestone** (`docs/roadmap.md` M1→M6), then move on.
-- Port cases from Komapper's tests (`komapper-core/src/test/.../template/`), especially
-  `TwoWayTemplateStatementBuilderTest.kt`.
-- `bisql_test.go` is the spec: expected SQL/args are already written and skipped. Remove
-  the `t.Skip` for a case once its milestone lands.
-- Parser soundness: assert that `ast` `Text()` reproduces the input (lossless).
+Public sub-packages sit at the top level (`dialect`, `expr`) — no `pkg/`. Internal
+token/ast types must not leak through the public API.
 
 ## Coding rules
 
-- Prefer the standard library. The one deliberate exception is the default expression
-  evaluator, which wraps `github.com/expr-lang/expr` (mature, safe, rich) rather than a
-  hand-rolled parser. Everything else stays dependency-free; alternative evaluators
-  (e.g. a goja JS backend) go behind `bisql.WithEvaluator`, never as a hard dep.
-- Public API gets English GoDoc comments.
-- Tooling is pinned in `mise.toml` (Go, golangci-lint, deadcode). Before committing run
-  `mise run check` (fmt + build + vet + lint + deadcode + `test -race`); it must be clean.
+- Prefer the standard library. The one deliberate dependency is `github.com/expr-lang/expr`
+  (the default evaluator); alternatives go behind `bisql.WithEvaluator`. Tests may use
+  `github.com/jackc/pgx/v5` under the `integration` build tag only.
+- Tooling is pinned in `mise.toml`. Before committing run `mise run check` (fmt + build +
+  vet + golangci-lint + deadcode + `go test -race`); it must be clean.
 - When a change affects behavior, add/update the corresponding test in the same commit.
+- e2e goldens live under `testdata/e2e/`; regenerate with `go test -run TestE2E -update`.
 
 ## Do not
 
-- Start full SQL grammar parsing (violates the core design).
-- Implement include or embedded values as raw-text embedding (both re-parse and splice).
+- Start full SQL grammar parsing, or reintroduce implicit clause/connector removal.
+- Add a raw-text embed / partial directive (composition is `@include` only).
 - Leak internal token/ast types through the public API.

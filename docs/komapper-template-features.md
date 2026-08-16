@@ -1,9 +1,22 @@
-# Komapper TEMPLATE syntax — full feature inventory (bisql target spec)
+# Komapper TEMPLATE syntax — inventory & bisql divergences
 
-This enumerates every feature of Komapper's TEMPLATE (2-way SQL) syntax, extracted from
-its source and tests (`komapper-core` / `komapper-template`). bisql aims to be
-**syntax-compatible** with this. Each row is a TDD target; expected outputs are taken
-verbatim from Komapper's tests so bisql can reproduce them.
+> **Historical reference.** This began as the Komapper feature inventory bisql targeted.
+> bisql has since adopted the **explicit model** (see [`design.md`](./design.md)) and
+> diverges deliberately. Treat the tables below as "what Komapper does"; the differences
+> that matter for bisql today:
+>
+> - **No implicit removal.** bisql does not drop empty clauses or dangling `AND`/`OR`, and
+>   does not tokenize clause keywords. Authors anchor with `1 = 1` / trailing `id` etc.
+>   (see the README "Authoring rules").
+> - **`/*# */` embedded and `/*> */` partial are removed.** Composition is the
+>   `/*%! @include name */` preprocessor only; there is no raw-text substitution.
+> - **Bind expansion is keyed on the test-literal shape** (`(...)` → placeholder list;
+>   scalar → one parameter, so a slice is one array param for `= ANY`).
+> - **Expression language** is expr-lang (`nil`, not Kotlin-isms), though `x != null` works.
+> - for-loops expose only `x_index` / `x_has_next` (no `_next_comma`/`_next_and`/`_next_or`).
+
+This enumerates Komapper's TEMPLATE (2-way SQL) syntax, extracted from its source and tests
+(`komapper-core` / `komapper-template`).
 
 Legend: **M** = milestone in `roadmap.md`.
 

@@ -147,7 +147,7 @@ func (l *Lexer) peekAt(i int) byte {
 }
 
 // scanQuoted scans a quoted span opened by quote (', ", or `). The quote char is escaped by
-// doubling it (SQL standard: '' "" ``). Backslash escaping (MySQL default) is not handled;
+// doubling it (SQL standard: ” "" “). Backslash escaping (MySQL default) is not handled;
 // use doubling in templates.
 func (l *Lexer) scanQuoted(quote byte) token.Kind {
 	// Assumes src[pos] == quote.
