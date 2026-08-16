@@ -326,6 +326,13 @@ func TestComments(t *testing.T) {
 			params: nil,
 			sql:    "select 1  from t",
 		},
+		{
+			name:   "both kinds together: block kept, parser removed",
+			tmpl:   "select /** cols */ id from t where /*%! TODO */ a = /*a*/1",
+			params: map[string]any{"a": 1},
+			sql:    "select /** cols */ id from t where  a = ?",
+			args:   []any{1},
+		},
 	})
 }
 
