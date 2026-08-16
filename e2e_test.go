@@ -2,7 +2,6 @@ package bisql_test
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,25 +18,26 @@ import (
 //	go test ./... -run TestE2E -update
 var update = flag.Bool("update", false, "update golden files in testdata/")
 
-func readTestdata(t *testing.T, name string) string {
+// e2eDir is the directory holding one template's input and golden outputs:
+//
+//	testdata/e2e/<template>/input.sql
+//	testdata/e2e/<template>/<case>.output.sql        (placeholder form)
+//	testdata/e2e/<template>/<case>.embedded.sql      (values-embedded form, when checked)
+func e2eDir(template string) string { return filepath.Join("testdata", "e2e", template) }
+
+func readFileString(t *testing.T, path string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", name))
+	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(b)
 }
 
-// formatStmt renders a Statement into the stable, human-readable form stored in goldens.
-func formatStmt(s bisql.Statement) string {
-	return fmt.Sprintf("SQL:\n%s\n\nArgs: %#v\n\nSQLWithArgs:\n%s\n", s.SQL, s.Args, s.SQLWithArgs)
-}
-
-// checkGolden compares (or, with -update, writes) the golden for one case.
-func checkGolden(t *testing.T, golden string, stmt bisql.Statement) {
+// checkGolden compares (or, with -update, writes) one golden file. Golden files are pure
+// SQL so they keep a .sql extension and stay syntax-highlightable.
+func checkGolden(t *testing.T, path, got string) {
 	t.Helper()
-	got := formatStmt(stmt)
-	path := filepath.Join("testdata", golden)
 	if *update {
 		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
 			t.Fatal(err)
@@ -46,25 +46,29 @@ func checkGolden(t *testing.T, golden string, stmt bisql.Statement) {
 	}
 	want, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read golden %s: %v (regenerate with: go test -run TestE2E -update)", golden, err)
+		t.Fatalf("read golden %s: %v (regenerate with: go test -run TestE2E -update)", path, err)
 	}
 	if got != string(want) {
-		t.Errorf("%s mismatch\n--- got ---\n%s\n--- want ---\n%s", golden, got, want)
+		t.Errorf("%s mismatch\n--- got ---\n%s\n--- want ---\n%s", path, got, want)
 	}
 }
 
-// goldenCase drives a template (from testdata) across named parameter sets, each checked
-// against testdata/<base>.<case>.golden.
+// goldenCase drives one template across named parameter sets. Each case goldens the
+// placeholder-form SQL to <case>.output.sql, asserts its bind args inline (short, and not
+// SQL), and — when embedded is set — goldens the values-embedded form (the runnable 2-way
+// SQL) to <case>.embedded.sql.
 type goldenCase struct {
-	name   string
-	opts   []bisql.Option
-	params map[string]any
+	name     string
+	opts     []bisql.Option
+	params   map[string]any
+	args     []any
+	embedded bool
 }
 
-func runGolden(t *testing.T, tmplFile string, cases []goldenCase) {
+func runGolden(t *testing.T, template string, cases []goldenCase) {
 	t.Helper()
-	src := readTestdata(t, tmplFile)
-	base := tmplFile[:len(tmplFile)-len(filepath.Ext(tmplFile))]
+	dir := e2eDir(template)
+	src := readFileString(t, filepath.Join(dir, "input.sql"))
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			tmpl, err := bisql.Parse(src, c.opts...)
@@ -75,32 +79,38 @@ func runGolden(t *testing.T, tmplFile string, cases []goldenCase) {
 			if err != nil {
 				t.Fatalf("build: %v", err)
 			}
-			checkGolden(t, base+"."+c.name+".golden", stmt)
+			if !reflect.DeepEqual(stmt.Args, c.args) {
+				t.Errorf("Args\n got: %#v\nwant: %#v", stmt.Args, c.args)
+			}
+			checkGolden(t, filepath.Join(dir, c.name+".output.sql"), stmt.SQL)
+			if c.embedded {
+				checkGolden(t, filepath.Join(dir, c.name+".embedded.sql"), stmt.SQLWithArgs)
+			}
 		})
 	}
 }
 
 func TestE2EDynamicWhere(t *testing.T) {
-	runGolden(t, "e2e_dynamic_where.sql", []goldenCase{
-		{name: "all_set", params: map[string]any{"name": "SCOTT", "age": 20, "ids": []any{1, 2, 3}}},
+	runGolden(t, "dynamic_where", []goldenCase{
+		{name: "all_set", params: map[string]any{"name": "SCOTT", "age": 20, "ids": []any{1, 2, 3}}, args: []any{"SCOTT", 20, 1, 2, 3}, embedded: true},
 		{name: "none_set", params: map[string]any{}},
 	})
-	runGolden(t, "e2e_dynamic_where_no_idiom.sql", []goldenCase{
-		{name: "age_only", params: map[string]any{"age": 20}},
+	runGolden(t, "dynamic_where_no_idiom", []goldenCase{
+		{name: "age_only", params: map[string]any{"age": 20}, args: []any{20}, embedded: true},
 		{name: "none_set", params: map[string]any{}},
 	})
 }
 
 func TestE2EDynamicOrderBy(t *testing.T) {
-	runGolden(t, "e2e_dynamic_order_by.sql", []goldenCase{
+	runGolden(t, "dynamic_order_by", []goldenCase{
 		{name: "with_sorts", params: map[string]any{"sorts": []any{"name asc", "age desc"}}},
 		{name: "no_sorts", params: map[string]any{}},
 	})
 }
 
 func TestE2EForAndJoin(t *testing.T) {
-	runGolden(t, "e2e_for_and_join.sql", []goldenCase{
-		{name: "three", params: map[string]any{"conds": []any{1, 2, 3}}},
+	runGolden(t, "for_and_join", []goldenCase{
+		{name: "three", params: map[string]any{"conds": []any{1, 2, 3}}, args: []any{1, 2, 3}, embedded: true},
 	})
 }
 
@@ -109,12 +119,13 @@ func TestE2EForAndJoin(t *testing.T) {
 func TestE2EAllInOne(t *testing.T) {
 	full := map[string]any{"flag": true, "cols": []any{"p.id", "p.name"}, "name": "SCOTT", "ids": []any{1, 2}, "sorts": []any{"name", "id desc"}}
 	dia := map[string]any{"flag": true, "cols": []any{"p.id"}, "name": "SCOTT", "ids": []any{1, 2}}
-	runGolden(t, "e2e_all_in_one.sql", []goldenCase{
-		{name: "mysql_full", params: full},
-		{name: "mysql_min", params: map[string]any{"flag": false, "cols": []any{"p.id"}}},
-		{name: "postgres", opts: []bisql.Option{bisql.WithDialect(dialect.PostgreSQL)}, params: dia},
-		{name: "oracle", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: dia},
-		{name: "sqlserver", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: dia},
+	fullArgs := []any{true, "SCOTT", 1, 2}
+	runGolden(t, "all_in_one", []goldenCase{
+		{name: "mysql_full", params: full, args: fullArgs, embedded: true},
+		{name: "mysql_min", params: map[string]any{"flag": false, "cols": []any{"p.id"}}, args: []any{false}, embedded: true},
+		{name: "postgres", opts: []bisql.Option{bisql.WithDialect(dialect.PostgreSQL)}, params: dia, args: fullArgs},
+		{name: "oracle", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: dia, args: fullArgs},
+		{name: "sqlserver", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: dia, args: fullArgs},
 	})
 }
 

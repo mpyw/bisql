@@ -1,9 +1,0 @@
-SQL:
-select * from t
-
-
-Args: []interface {}(nil)
-
-SQLWithArgs:
-select * from t
-

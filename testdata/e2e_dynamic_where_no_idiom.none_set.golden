@@ -1,9 +1,0 @@
-SQL:
-select * from person
-
-
-Args: []interface {}(nil)
-
-SQLWithArgs:
-select * from person
-
