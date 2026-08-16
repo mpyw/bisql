@@ -27,12 +27,15 @@ start of each token (bisql convention; Komapper reports the post-consume positio
 - [x] fold clauses/operators, recurse into `(...)`, set operations, if/for/with blocks
 - [x] `parser_test.go` (asserts `ast.Text()` reproduces the input = lossless; ported from `SqlParserTest`)
 
-## M3: default expression evaluator
+## M3: default expression evaluator ✅
 
-- [ ] `internal/exprlang`: comparisons, logical ops, literals, property/method, safe call
-- [ ] resolve map / struct / methods via reflection
-- [ ] split into token/ast/lexer/parser/eval sub-packages as it grows
-- [ ] `exprlang_test.go`
+- [x] `internal/exprlang`: comparisons, logical ops, literals, property/method, safe call
+- [x] resolve map / struct / methods via reflection
+- [x] `exprlang_test.go`
+
+Deviations from Komapper (documented in the package): Kotlin-specific `is`/`as`, class
+references `@FQCN@`, and numeric type suffixes are omitted (they do not map to Go). Plug a
+custom evaluator via `bisql.WithEvaluator` if needed. May split into sub-packages later.
 
 ## M4: renderer (heart of 2-way)
 

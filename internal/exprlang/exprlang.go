@@ -1,23 +1,38 @@
-// Package exprlang is bisql's built-in expression language: a small evaluator that
-// resolves map keys / struct fields / methods via reflection.
+// Package exprlang is bisql's built-in expression evaluator for directive expressions
+// (the e in /*%if e*/, the bind expression in /* e */, etc.).
 //
-// TODO(M3): implement. This package will be split into token/ast/lexer/parser/eval
-// sub-packages once it grows, following the repository's fine-grained package policy
-// (see CLAUDE.md).
+// It is a small, Go-idiomatic language: literals (null/true/false/string/int/float),
+// comparisons (== != > < >= <=), logical operators (! && ||), parentheses, property access
+// (a.b.c), safe calls (a?.b), and method/function calls. Members are resolved against
+// map[string]any keys and struct fields/methods via reflection.
+//
+// Deviations from Komapper: Kotlin-specific constructs (class references @FQCN@, the is/as
+// type operators, numeric type suffixes L/F/D/B) are intentionally omitted; they do not map
+// to Go. Callers needing them can plug a custom evaluator via bisql.WithEvaluator.
 package exprlang
 
 import (
-	"errors"
+	"fmt"
 
 	"github.com/mpyw/bisql/pkg/expr"
 )
 
-// Default is the built-in evaluator. It satisfies expr.Evaluator.
+// Default is bisql's built-in evaluator. It satisfies expr.Evaluator.
 type Default struct{}
 
-var errNotImplemented = errors.New("bisql/exprlang: default evaluator not implemented yet (M3)")
-
-// Eval evaluates an expression.
+// Eval evaluates expression against scope.
 func (Default) Eval(expression string, scope expr.Scope) (any, error) {
-	return nil, errNotImplemented
+	toks, err := lex(expression)
+	if err != nil {
+		return nil, err
+	}
+	p := &evaluator{toks: toks, scope: scope}
+	v, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	if p.cur().kind != tEOF {
+		return nil, fmt.Errorf("bisql/exprlang: unexpected token %q", p.cur().text)
+	}
+	return v, nil
 }
