@@ -304,9 +304,12 @@ name, and `FSLoader` reports a missing file with `fs.ErrNotExist`, which the cha
 as "not found". If no loader in the chain has the fragment, resolution fails with an error
 satisfying `ErrNotFound`.
 
-The `Expand` and `ExpandFile` functions perform only the inclusion step and return the fully
-expanded, still-two-way template text, which is useful for snapshots and for pre-execution
-inspection with `EXPLAIN`:
+### Expanding includes for inspection
+
+The `Expand` and `ExpandFile` functions perform only the inclusion step: they resolve every
+`@include` and return the resulting template text, leaving all other directives intact. The
+result is therefore still a valid two-way template, which is useful for committing expanded
+snapshots and for pre-execution inspection with `EXPLAIN`.
 
 ```go
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
