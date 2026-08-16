@@ -205,6 +205,15 @@ func TestTupleIN(t *testing.T) {
 			args:     []any{1, 2, 3, 4},
 			withArgs: "select 1 from t where (a, b) in ((1, 2), (3, 4))",
 		},
+		{
+			// Arbitrary arity (here 4 columns), unlike Komapper's Pair/Triple-only support.
+			name:     "quadruples",
+			tmpl:     "select 1 from t where (a, b, c, d) in /*rows*/((0, 0, 0, 0))",
+			params:   map[string]any{"rows": []any{[]any{1, 2, 3, 4}, []any{5, 6, 7, 8}}},
+			sql:      "select 1 from t where (a, b, c, d) in ((?, ?, ?, ?), (?, ?, ?, ?))",
+			args:     []any{1, 2, 3, 4, 5, 6, 7, 8},
+			withArgs: "select 1 from t where (a, b, c, d) in ((1, 2, 3, 4), (5, 6, 7, 8))",
+		},
 	})
 }
 

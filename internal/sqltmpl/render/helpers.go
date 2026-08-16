@@ -30,7 +30,9 @@ func asIterable(v any) ([]any, bool) {
 }
 
 // asTuple reports whether e is itself a slice/array (a row for multi-column IN, e.g.
-// WHERE (a, b) IN ((1, 2), (3, 4))) and returns its members.
+// WHERE (a, b) IN ((1, 2), (3, 4))) and returns its members. Arbitrary arity is supported
+// — a row may have any number of columns — generalizing Komapper, which only handled
+// Pair/Triple (2 or 3).
 func asTuple(e any) ([]any, bool) {
 	return asIterable(e)
 }
