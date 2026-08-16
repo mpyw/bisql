@@ -1,6 +1,7 @@
 package bisql_test
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -340,6 +341,60 @@ func TestInclude(t *testing.T) {
 	t.Run("bare Parse rejects @include", func(t *testing.T) {
 		if _, err := bisql.Parse("/*%! @include x */"); err == nil {
 			t.Error("bare Parse should reject @include (no loader)")
+		}
+	})
+}
+
+// StackedLoader tries loaders in order, falling through on "not found" and aborting on any
+// other error.
+func TestStackedLoader(t *testing.T) {
+	pg := bisql.WithDialect(dialect.PostgreSQL)
+
+	t.Run("falls through to a later loader", func(t *testing.T) {
+		// The FS lacks "frag.sql" (fs.ErrNotExist); the registry has it — the stack uses it.
+		fsys := fstest.MapFS{"other.sql": {Data: []byte("x")}}
+		reg := bisql.NewRegistry().Register("frag.sql", "name = /*name*/'x'")
+		tmpl, err := bisql.Parse("where /*%! @include frag.sql */ 1 = 1",
+			pg, bisql.WithStackedLoader(bisql.NewFSLoader(fsys), reg))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stmt, _ := tmpl.Build(map[string]any{"name": "SCOTT"})
+		if stmt.SQL != "where name = $1 1 = 1" {
+			t.Errorf("SQL = %q", stmt.SQL)
+		}
+	})
+
+	t.Run("earlier loader wins", func(t *testing.T) {
+		first := bisql.NewRegistry().Register("f", "a = /*a*/0")
+		second := bisql.NewRegistry().Register("f", "b = /*b*/0")
+		tmpl, err := bisql.Parse("where /*%! @include f */", pg,
+			bisql.WithStackedLoader(first, second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stmt, _ := tmpl.Build(map[string]any{"a": 1})
+		if stmt.SQL != "where a = $1" {
+			t.Errorf("SQL = %q", stmt.SQL)
+		}
+	})
+
+	t.Run("not found in any yields ErrNotFound", func(t *testing.T) {
+		_, err := bisql.Parse("/*%! @include gone */",
+			bisql.WithStackedLoader(bisql.NewRegistry(), bisql.NewRegistry()))
+		if !errors.Is(err, bisql.ErrNotFound) {
+			t.Errorf("want ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("a non-not-found error aborts without falling through", func(t *testing.T) {
+		boom := errors.New("backend unavailable")
+		failing := bisql.LoaderFunc(func(string) (string, error) { return "", boom })
+		fallback := bisql.NewRegistry().Register("f", "1 = 1")
+		_, err := bisql.Parse("/*%! @include f */",
+			bisql.WithStackedLoader(failing, fallback))
+		if !errors.Is(err, boom) {
+			t.Errorf("want the backend error, got %v", err)
 		}
 	})
 }

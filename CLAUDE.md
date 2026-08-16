@@ -55,7 +55,8 @@ The engine cleans nothing, so templates must anchor:
 
 ```
 bisql            (root) NewParser / Parser / Parse / ParseFile / Expand / ExpandFile / Template / Statement / Option
-                 include: Loader interface + RegistryLoader / FSLoader / LoaderFunc / WithLoader
+                 include: Loader + RegistryLoader / FSLoader / LoaderFunc / StackedLoader
+                 (falls through on ErrNotFound) + WithLoader / WithStackedLoader
 dialect/         Dialect, Placeholder, Literal, MySQL/PostgreSQL/Oracle/SQLServer
 expr/            Evaluator interface, Scope (public: callers can plug their own)
 internal/

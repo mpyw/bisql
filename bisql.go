@@ -84,6 +84,13 @@ func WithEvaluator(e expr.Evaluator) Option { return func(c *config) { c.evaluat
 // LoaderFunc, or your own), otherwise @include is an error.
 func WithLoader(l Loader) Option { return func(c *config) { c.loader = l } }
 
+// WithStackedLoader resolves fragments by trying loaders in order, falling through to the
+// next whenever one reports the fragment is not found (see ErrNotFound); any other error
+// aborts. It is shorthand for WithLoader(NewStackedLoader(loaders...)).
+func WithStackedLoader(loaders ...Loader) Option {
+	return WithLoader(NewStackedLoader(loaders...))
+}
+
 // resolver returns the preprocess resolver for c's loader (or one that rejects @include).
 func (c config) resolver() func(string) (string, error) {
 	if c.loader == nil {

@@ -53,8 +53,10 @@ var sqlFiles embed.FS
 func main() {
 	sqlFS, _ := fs.Sub(sqlFiles, "sql")
 
-	tmpl, err := bisql.ParseFile(sqlFS, "employees/search.sql",
-		bisql.WithDialect(dialect.PostgreSQL))
+	// Configure a Parser once and reuse it for every template.
+	p := bisql.NewParser(bisql.WithDialect(dialect.PostgreSQL))
+
+	tmpl, err := p.ParseFile(sqlFS, "employees/search.sql")
 	if err != nil {
 		panic(err)
 	}
@@ -235,15 +237,16 @@ type Loader interface {
 }
 ```
 
-Fragment resolution is delegated to an implementation of the `Loader` interface. Three
+Fragment resolution is delegated to an implementation of the `Loader` interface. Four
 implementations are provided. There is **no default**; a template that uses `@include` must be
 parsed with a loader.
 
-| Implementation   | Constructor                 | Source                                              |
-|:-----------------|:----------------------------|:----------------------------------------------------|
-| `RegistryLoader` | `bisql.NewRegistry()`       | In-memory fragments registered by name.             |
-| `FSLoader`       | `bisql.NewFSLoader(fs.FS)`  | Files in an `fs.FS` (`embed.FS`, `os.DirFS`, …); the `@include` name is the file path from the root of the `fs.FS`. |
-| `LoaderFunc`     | `bisql.LoaderFunc(fn)`      | An adapter over any resolution function.            |
+| Implementation   | Constructor                        | Source                                              |
+|:-----------------|:-----------------------------------|:----------------------------------------------------|
+| `RegistryLoader` | `bisql.NewRegistry()`              | In-memory fragments registered by name.             |
+| `FSLoader`       | `bisql.NewFSLoader(fs.FS)`         | Files in an `fs.FS` (`embed.FS`, `os.DirFS`, …); the `@include` name is the file path from the root of the `fs.FS`. |
+| `LoaderFunc`     | `bisql.LoaderFunc(fn)`             | An adapter over any resolution function.            |
+| `StackedLoader`  | `bisql.NewStackedLoader(…Loader)`  | A chain of loaders tried in order (see below).      |
 
 `ParseFile` (see [Synopsis](#synopsis)) is the file-oriented entry point: it reads the root
 template from an `fs.FS` and, unless a loader is configured explicitly, resolves `@include`
@@ -266,6 +269,24 @@ tmpl, err := bisql.Parse(
 	bisql.WithLoader(loader),
 )
 ```
+
+Loaders may be layered with `StackedLoader` (or the `WithStackedLoader` shorthand). Each
+loader is tried in order; the chain falls through to the next loader when the current one
+reports that the fragment is not found, and aborts immediately on any other error. This
+allows, for example, a set of overrides to take precedence over an embedded default set:
+
+```go
+tmpl, err := bisql.Parse(src, bisql.WithStackedLoader(
+	overrides,                  // consulted first; e.g. a RegistryLoader
+	bisql.NewFSLoader(sqlFS),   // fallback: the embedded defaults
+))
+```
+
+A loader signals "not found" — as opposed to a genuine failure — by returning an error that
+satisfies `errors.Is(err, bisql.ErrNotFound)`. `RegistryLoader` does so for an unregistered
+name, and `FSLoader` reports a missing file with `fs.ErrNotExist`, which the chain also treats
+as "not found". If no loader in the chain has the fragment, resolution fails with an error
+satisfying `ErrNotFound`.
 
 The `Expand` and `ExpandFile` functions perform only the inclusion step and return the fully
 expanded, still-two-way template text, which is useful for snapshots and for pre-execution
@@ -403,8 +424,8 @@ replaceable through `WithEvaluator`.
 
 ```text
 bisql            Public API: NewParser, Parser, Parse, ParseFile, Expand, ExpandFile,
-                 Template, Statement, Option, and fragment loaders
-                 (Loader, RegistryLoader, FSLoader, LoaderFunc, WithLoader).
+                 Template, Statement, Option, and fragment loaders (Loader, RegistryLoader,
+                 FSLoader, LoaderFunc, StackedLoader, ErrNotFound, WithLoader, WithStackedLoader).
 dialect/         Dialect definitions: placeholder generation and literal formatting
                  (MySQL, PostgreSQL, Oracle, SQL Server).
 expr/            Evaluator interface and Scope (for custom evaluators).
