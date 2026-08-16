@@ -165,12 +165,18 @@ hints (`/*+ … */`) — pass through to the output unchanged.
 
 The loop variable of `/*%for*/` is accompanied by two derived variables that are valid inside
 nested directives: `<name>_index` (zero-based position) and `<name>_has_next` (true for every
-element except the last). The following fragment renders a comma-separated placeholder list of
-bound values with no trailing comma (for `ids` of length three, `$1, $2, $3`):
+element except the last). The following fragment uses `_has_next` to place a separator between
+elements; for `ids` of length three, its built output is `$1, $2, $3`:
 
 ```sql
 /*%for id in ids*//*id*/0/*%if id_has_next*/, /*%end*//*%end*/
 ```
+
+> [!NOTE]
+> A conditional separator like this leaves a trailing comma when the raw template is pasted
+> into a client, so it is not two-way on its own. To build a **runnable** list, keep the
+> separator as a literal in the loop body and absorb it with an anchor; see
+> [Anchoring dynamic fragments](#anchoring-dynamic-fragments).
 
 > [!NOTE]
 > `/*%for*/` iterates over **values**, which are bound as parameters. It does not emit column
@@ -329,7 +335,8 @@ left dangling.
 | `WHERE` / `HAVING`| Introduce a constant predicate (`1 = 1` for `AND` chains, `1 = 0` for `OR` chains); each condition carries a leading `and`/`or`. |
 | `ORDER BY`        | Terminate the list with a stable key (for example, `id`).                               |
 | `SELECT` / `SET` column list | Begin with a fixed column and add each optional, whitelisted column with a leading comma inside a `/*%if*/`. |
-| Value list via `/*%for*/` | Emit the bound values and append the separator conditionally with `/*%if x_has_next*/,/*%end*/`. |
+| List via `/*%for*/` | Keep the separator as a literal in the loop body and let an anchor absorb it: a trailing separator with a trailing key, or a leading separator with a leading key. |
+| Multi-row `INSERT` | A `VALUES` list has no anchor position; build the rows with `INSERT … SELECT`, anchored by a zero-row `select … where 1 = 0` and a `union all` inside the loop. |
 | `JOIN` / `UNION`  | Place the connector inside the `/*%if*/` block so that each fragment is self-contained. |
 
 ```sql
@@ -348,9 +355,15 @@ order by /*%if byName*/name, /*%end*/emp_no
 select emp_no /*%if withName*/, name/*%end*/ /*%if withDept*/, dept_no/*%end*/
 from employees
 
--- Value list via iteration: a separator is appended between elements (not after the last).
+-- Value list: the comma is a literal in the loop body, absorbed by the trailing key `id`.
+select /*%for c in cols*//*c*/0, /*%end*/id
+from t
+
+-- Multi-row INSERT: a VALUES list cannot be anchored, so build the rows with INSERT ... SELECT,
+-- anchored by a zero-row select and a union all inside the loop.
 insert into audit (emp_no, action)
-values /*%for e in entries*/(/*e.empNo*/0, /*e.action*/'x')/*%if e_has_next*/, /*%end*//*%end*/
+select 0, '' where 1 = 0
+/*%for e in entries*/union all select /*e.empNo*/0, /*e.action*/'x'/*%end*/
 ```
 
 > [!IMPORTANT]

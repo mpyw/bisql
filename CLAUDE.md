@@ -41,8 +41,14 @@ authoring rules).
 The engine cleans nothing, so templates must anchor:
 
 - WHERE/HAVING: `1 = 1` / `1 = 0` anchor; conditions carry a leading `and`/`or`.
-- ORDER BY: trailing stable key (`id`). SELECT/SET lists: base anchor + leading comma, or a
-  `/*%for*/` + `/*%if x_has_next*/,/*%end*/` (there is **no** `_next_comma` helper).
+- ORDER BY: trailing stable key (`id`). SELECT/SET column lists: base column + leading comma
+  inside `/*%if*/` (whitelist).
+- Lists via `/*%for*/`: keep the separator a **literal in the loop body** and absorb it with an
+  anchor (trailing separator + trailing key, or leading separator + leading key). A conditional
+  `/*%if x_has_next*/,/*%end*/` separator is **not** two-way (trailing comma when pasted raw);
+  it is only a fallback for anchorless lists. There is no `_next_comma` helper and none is
+  needed. Multi-row INSERT: use `INSERT … SELECT` with a zero-row `select … where 1 = 0` anchor
+  and `union all` inside the loop (a `VALUES` list cannot be anchored).
 - JOIN/UNION: put the connector inside the `/*%if*/`.
 - Escape quotes by **doubling** (`''` `""` `` `` ``); backslash escapes are not recognized.
 - `/* ... */` is a bind directive → a plain comment must start with a non-identifier char
