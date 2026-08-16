@@ -92,7 +92,7 @@ func toScope(params any) (expr.Scope, error) {
 	case nil:
 		return expr.Scope{}, nil
 	case map[string]any:
-		return expr.Scope(p), nil
+		return p, nil
 	case expr.Scope:
 		return p, nil
 	}
