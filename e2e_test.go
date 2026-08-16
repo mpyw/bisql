@@ -100,6 +100,8 @@ func TestE2EDynamicWhere(t *testing.T) {
 	})
 }
 
+// No /*%if sorts != null*/ guard: a for-loop over a nil/absent iterable is zero iterations,
+// so the empty ORDER BY drops natively.
 func TestE2EDynamicOrderBy(t *testing.T) {
 	runGolden(t, "dynamic_order_by", []goldenCase{
 		{name: "with_sorts", params: map[string]any{"sorts": []any{"name asc", "age desc"}}},
@@ -110,6 +112,7 @@ func TestE2EDynamicOrderBy(t *testing.T) {
 func TestE2EForAndJoin(t *testing.T) {
 	runGolden(t, "for_and_join", []goldenCase{
 		{name: "three", params: map[string]any{"conds": []any{1, 2, 3}}, args: []any{1, 2, 3}, embedded: true},
+		{name: "none", params: map[string]any{}}, // nil conds -> WHERE drops
 	})
 }
 

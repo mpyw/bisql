@@ -1,2 +1,2 @@
 select * from t
-where x = ? and x = ? and x = ?  
+where x = ? and x = ? and x = ?

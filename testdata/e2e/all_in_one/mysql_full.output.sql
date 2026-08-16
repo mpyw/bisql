@@ -7,4 +7,4 @@ join active a on a.id = p.id
 where
  name = ?
 and p.id in (?, ?)
-order by name, id desc 
+order by name, id desc

@@ -209,11 +209,17 @@ func (r *renderer) visit(s *state, n ast.Node) error {
 		return nil
 
 	case ast.Paren:
+		// The parens are content for the enclosing clause (mark available), but inside them
+		// availability must reset so a dangling leading AND/OR is dropped. Rendering into a
+		// child state achieves that; Komapper renders into the same state and thus leaves
+		// "(and ...)" — bisql diverges here for correctness.
 		s.available = true
 		s.appendString("(")
-		if err := r.visit(s, node.Node); err != nil {
+		child := s.child()
+		if err := r.visit(child, node.Node); err != nil {
 			return err
 		}
+		s.appendState(child)
 		s.appendString(")")
 		return nil
 
@@ -487,6 +493,13 @@ func (r *renderer) visitFor(s *state, node ast.ForBlock) error {
 	v, err := r.eval(node.For.Expression, s)
 	if err != nil {
 		return err
+	}
+	if v == nil {
+		// A nil (or absent, under AllowUndefinedVariables) iterable means "no items": zero
+		// iterations, so the surrounding droppable clause drops natively. This spares the
+		// caller a /*%if xs != null*/ guard around every loop. A non-nil, non-iterable
+		// value is still a type error below.
+		return nil
 	}
 	elems, ok := asIterable(v)
 	if !ok {

@@ -202,6 +202,54 @@ func TestRenderForHelpers(t *testing.T) {
 	}
 }
 
+// A for-loop over a nil iterable is zero iterations (not an error), so callers need no
+// /*%if xs != null*/ guard; a non-nil, non-iterable value is still an error.
+func TestRenderForNil(t *testing.T) {
+	body := []ast.Node{ast.Word{Token: "x"}}
+	forBlock := ast.ForBlock{For: ast.ForDirective{Identifier: "i", Expression: "xs", Nodes: body}}
+	tree := ast.Statement{Nodes: []ast.Node{ast.Word{Token: "a"}, ast.Space{Token: " "}, forBlock}}
+
+	res, err := Render(tree, nil, newCfg(stubEval{"xs": nil}))
+	if err != nil {
+		t.Fatalf("nil iterable should not error: %v", err)
+	}
+	if res.SQL != "a " {
+		t.Errorf("nil for produced %q, want %q (zero iterations)", res.SQL, "a ")
+	}
+
+	if _, err := Render(tree, nil, newCfg(stubEval{"xs": 42})); err == nil {
+		t.Error("non-nil non-iterable (int) must still error")
+	}
+}
+
+// Dangling AND/OR removal must also apply inside parentheses (availability resets within
+// the group), while the group as a whole still counts as content for the enclosing clause.
+func TestRenderParenDanglingConnector(t *testing.T) {
+	// where ( <and-a> <and-b> ) with both present -> leading "and" of a dropped.
+	and := func(word string) ast.Logical {
+		return ast.Logical{Kind: ast.LogicalAnd, Keyword: "and", Nodes: []ast.Node{ast.Space{Token: " "}, ast.Word{Token: word}}}
+	}
+	inner := ast.Statement{Nodes: []ast.Node{and("a"), ast.Space{Token: " "}, and("b")}}
+	tree := ast.Statement{Nodes: []ast.Node{ast.Word{Token: "x"}, ast.Space{Token: " "}, ast.Paren{Node: inner}}}
+	res, err := Render(tree, nil, newCfg(stubEval{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.SQL != "x ( a and b)" {
+		t.Errorf("got %q, want %q (leading AND inside parens dropped)", res.SQL, "x ( a and b)")
+	}
+
+	// Nested parens: the innermost leading AND is still dropped.
+	nested := ast.Statement{Nodes: []ast.Node{ast.Paren{Node: ast.Statement{Nodes: []ast.Node{and("b")}}}}}
+	res2, err := Render(ast.Statement{Nodes: []ast.Node{ast.Paren{Node: nested}}}, nil, newCfg(stubEval{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.SQL != "(( b))" {
+		t.Errorf("nested got %q, want %q", res2.SQL, "(( b))")
+	}
+}
+
 // --- recursion depth guard ---
 
 func TestRenderDepthGuard(t *testing.T) {

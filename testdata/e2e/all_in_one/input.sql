@@ -7,4 +7,4 @@ join active a on a.id = p.id
 where
 /*%if name != null*/and name = /*name*/'x'/*%end*/
 /*%if ids != null*/and p.id in /*ids*/(0)/*%end*/
-/*%if sorts != null*/order by /*%for s in sorts*//*# s *//*# s_next_comma */ /*%end*//*%end*/
+order by /*%for s in sorts*//*# s *//*# s_next_comma */ /*%end*/
