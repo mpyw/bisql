@@ -47,7 +47,6 @@ See [Authoring rules](#authoring-rules--gotchas).
 | `/*^ expr */literal` | **literal**: inline the value as a SQL literal (review/DDL; injection-prone) |
 | `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/` | conditional |
 | `/*%for x in xs*/ … /*%end*/` | iteration (exposes `x_index`, `x_has_next`) |
-| `/*%with e*/ … /*%end*/` | expose a struct/map's fields as scope variables |
 | `/*%! ... */` | parser comment: removed from output (also hosts `@include`) |
 | `/*%! @include name */` | **preprocessor**: splice a registered fragment (see [Includes](#includes)) |
 

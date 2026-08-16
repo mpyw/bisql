@@ -12,7 +12,7 @@ type reducer interface {
 	reduce() (ast.Node, error)
 }
 
-// block marks reducers that /*%end*/ folds down to (if/for/with).
+// block marks reducers that /*%end*/ folds down to (if/for).
 type block interface {
 	reducer
 	isBlock()
@@ -118,18 +118,6 @@ func (r *forDirectiveReducer) reduce() (ast.Node, error) {
 	return ast.ForDirective{Loc: r.loc, Token: r.token, Identifier: r.id, Expression: r.expr, Nodes: r.nodes}, nil
 }
 
-type withDirectiveReducer struct {
-	loc   ast.Location
-	token string
-	expr  string
-	nodes []ast.Node
-}
-
-func (r *withDirectiveReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *withDirectiveReducer) reduce() (ast.Node, error) {
-	return ast.WithDirective{Loc: r.loc, Token: r.token, Expression: r.expr, Nodes: r.nodes}, nil
-}
-
 // --- block reducers ---
 
 type ifBlockReducer struct {
@@ -209,35 +197,4 @@ func (r *forBlockReducer) reduce() (ast.Node, error) {
 		return nil, fmt.Errorf("bisql/parser: the corresponding end directive is not found at line %d, column %d", r.loc.Line, r.loc.Column)
 	}
 	return ast.ForBlock{For: *forDir, End: *endD}, nil
-}
-
-type withBlockReducer struct {
-	loc   ast.Location
-	nodes []ast.Node
-}
-
-func (r *withBlockReducer) isBlock()       {}
-func (r *withBlockReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *withBlockReducer) reduce() (ast.Node, error) {
-	var withDir *ast.WithDirective
-	var endD *ast.EndDirective
-	for _, n := range r.nodes {
-		switch d := n.(type) {
-		case ast.WithDirective:
-			dd := d
-			withDir = &dd
-		case ast.EndDirective:
-			dd := d
-			endD = &dd
-		default:
-			return nil, fmt.Errorf("bisql/parser: unexpected node in with block: %T", n)
-		}
-	}
-	if withDir == nil {
-		return nil, fmt.Errorf("bisql/parser: the with directive is not found at line %d, column %d", r.loc.Line, r.loc.Column)
-	}
-	if endD == nil {
-		return nil, fmt.Errorf("bisql/parser: the corresponding end directive is not found at line %d, column %d", r.loc.Line, r.loc.Column)
-	}
-	return ast.WithBlock{With: *withDir, End: *endD}, nil
 }

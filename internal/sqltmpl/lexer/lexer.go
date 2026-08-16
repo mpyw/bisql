@@ -213,8 +213,6 @@ func (l *Lexer) directiveNameKind() (token.Kind, bool) {
 		return token.Else, true
 	case "for":
 		return token.For, true
-	case "with":
-		return token.With, true
 	case "end":
 		return token.End, true
 	default:

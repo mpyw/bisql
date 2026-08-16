@@ -162,11 +162,3 @@ func TestRender_ForRestoresScope(t *testing.T) {
 type keyEval struct{}
 
 func (keyEval) Eval(e string, s expr.Scope) (any, error) { return s[e], nil }
-
-func TestRender_With(t *testing.T) {
-	res := renderTmpl(t, "/*%with u*/name = /*name*/'x' and age > /*age*/0/*%end*/",
-		expr.Scope{"u": map[string]any{"name": "bob", "age": 20}}, qmark)
-	if res.SQL != "name = ? and age > ?" || !reflect.DeepEqual(res.Args, []any{"bob", 20}) {
-		t.Errorf("SQL=%q Args=%#v", res.SQL, res.Args)
-	}
-}

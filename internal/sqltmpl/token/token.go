@@ -34,7 +34,6 @@ const (
 	Elseif        // /*%elseif e*/
 	Else          // /*%else*/
 	For           // /*%for x in xs*/
-	With          // /*%with e*/
 	End           // /*%end*/
 
 	// opaque tokens

@@ -8,6 +8,11 @@ import (
 
 // The tree is lossless: Text() reproduces the input, except parser comments (/*%!) and a
 // trailing delimiter (;) are dropped.
+//
+// Every case is also a *valid 2-way template*: with the directives read as SQL comments (as
+// a DB client would), the raw text is runnable SQL. That means the branch/loop bodies are
+// composing (each carries a leading `and`/`or`) and anchored (`1 = 1` / `1 = 0` / a trailing
+// key), so nothing dangles — the same discipline bisql asks of authors.
 func TestParse_Lossless(t *testing.T) {
 	cases := []string{
 		"",
@@ -15,11 +20,14 @@ func TestParse_Lossless(t *testing.T) {
 		"select * from t where a = /*a*/'x' and b > /*b*/0",
 		"select id from t where id in /*ids*/(1, 2, 3)",
 		"select * from (select id from t) x",
-		"select 1 from t where /*%if a*/x = 1/*%elseif b*/y = 2/*%else*/z = 3/*%end*/",
-		"select /*%for c in cols*/x/*%if c_has_next*/,/*%end*//*%end*/ from t",
-		"select 1 where /*%with u*/a = /*a*/0/*%end*/",
-		"select /** keep */ /*# also-a-comment */ 1 -- trailing\nfrom t",
-		"where a = /*a*/1::bigint and b = ANY(/*b*/'{}'::int[])",
+		// if/elseif/else with composing (`and ...`) bodies + a 1=1 anchor: raw text is
+		// `where 1 = 1 and x = 1 and y = 2 and z = 3`, which is valid.
+		"select * from t where 1 = 1 /*%if a*/ and x = 1/*%elseif b*/ and y = 2/*%else*/ and z = 3/*%end*/",
+		// for-loop with a 1=0 OR-anchor and a self-contained `or ...` body: raw text is
+		// `where 1 = 0 or name like '%x%'`, which is valid.
+		"select * from t where 1 = 0 /*%for kw in kws*/or name like /*kw*/'%x%'/*%end*/",
+		"select /** keep */ /*# also a comment now */ 1 -- trailing\nfrom t",
+		"select * from t where a = /*a*/1::bigint and b = ANY(/*b*/'{}'::int[])",
 		"select `a`, \"b\", 'c/*x*/' from t",
 	}
 	for _, src := range cases {
@@ -99,7 +107,7 @@ func TestParse_Errors(t *testing.T) {
 		"select 1 /*%elseif a*/x/*%end*/", // elseif without if
 		"select /* */x",                   // empty bind expression
 		"select /*%for x*/y/*%end*/",      // for without "in"
-		"select /*a*/ from t",             // no test value after bind (space then keyword-word... 'from' is a Word, ok) -> actually a bind needs a Word/Paren test
+		"select /*a*/ from t",             // a space (not a Word/Paren) follows the bind: no test literal
 	} {
 		if _, err := Parse(src); err == nil {
 			t.Errorf("expected error for %q", src)

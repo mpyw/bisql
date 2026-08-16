@@ -30,7 +30,7 @@ type Config struct {
 
 // Render evaluates the tree against the scope.
 func Render(n ast.Node, scope expr.Scope, cfg Config) (Result, error) {
-	// Copy the scope so for/with blocks can shadow variables without leaking to the caller.
+	// Copy the scope so for blocks can shadow variables without leaking to the caller.
 	sc := make(expr.Scope, len(scope))
 	for k, v := range scope {
 		sc[k] = v
@@ -113,8 +113,6 @@ func (r *renderer) visit(n ast.Node) error {
 		return r.visitIf(node)
 	case ast.ForBlock:
 		return r.visitFor(node)
-	case ast.WithBlock:
-		return r.visitWith(node)
 	default:
 		return fmt.Errorf("bisql/render: unexpected node %T", n)
 	}
@@ -287,39 +285,6 @@ func (r *renderer) visitFor(node ast.ForBlock) error {
 		} else {
 			delete(r.scope, n)
 		}
-	}
-	return nil
-}
-
-func (r *renderer) visitWith(node ast.WithBlock) error {
-	v, err := r.eval(node.With.Expression)
-	if err != nil {
-		return err
-	}
-	if v == nil {
-		return fmt.Errorf("bisql/render: with expression %q is nil", node.With.Expression)
-	}
-	members, err := membersOf(v)
-	if err != nil {
-		return fmt.Errorf("bisql/render: with expression %q: %w", node.With.Expression, err)
-	}
-	preserved := make(expr.Scope, len(r.scope))
-	for k, val := range r.scope {
-		preserved[k] = val
-	}
-	for k, mv := range members {
-		r.scope[k] = mv
-	}
-	for _, c := range node.With.Nodes {
-		if err := r.visit(c); err != nil {
-			return err
-		}
-	}
-	for k := range r.scope {
-		delete(r.scope, k)
-	}
-	for k, val := range preserved {
-		r.scope[k] = val
 	}
 	return nil
 }

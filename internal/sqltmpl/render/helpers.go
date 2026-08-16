@@ -1,9 +1,6 @@
 package render
 
-import (
-	"fmt"
-	"reflect"
-)
+import "reflect"
 
 // asIterable reports whether v is a slice or array (but not a string or []byte, which bind
 // as scalars) and, if so, returns its elements as []any. Used for IN-list expansion and
@@ -26,40 +23,5 @@ func asIterable(v any) ([]any, bool) {
 		return out, true
 	default:
 		return nil, false
-	}
-}
-
-// membersOf extracts the properties of v (exported struct fields or string-keyed map
-// entries) for a with block.
-func membersOf(v any) (map[string]any, error) {
-	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Pointer {
-		if rv.IsNil() {
-			return nil, fmt.Errorf("nil pointer has no properties")
-		}
-		rv = rv.Elem()
-	}
-	switch rv.Kind() {
-	case reflect.Map:
-		if rv.Type().Key().Kind() != reflect.String {
-			return nil, fmt.Errorf("map key type %s is not a string", rv.Type().Key())
-		}
-		out := make(map[string]any, rv.Len())
-		for _, k := range rv.MapKeys() {
-			out[k.String()] = rv.MapIndex(k).Interface()
-		}
-		return out, nil
-	case reflect.Struct:
-		t := rv.Type()
-		out := make(map[string]any, t.NumField())
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			if f.IsExported() {
-				out[f.Name] = rv.Field(i).Interface()
-			}
-		}
-		return out, nil
-	default:
-		return nil, fmt.Errorf("%T is neither a struct nor a map", v)
 	}
 }

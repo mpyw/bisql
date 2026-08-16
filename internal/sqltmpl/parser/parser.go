@@ -1,5 +1,5 @@
 // Package parser builds the template tree from a SQL template using a reducer-stack
-// strategy for the block directives (if/for/with) and the bind/literal test literals.
+// strategy for the block directives (if/for) and the bind/literal test literals.
 //
 // It does not parse SQL as a grammar and recognizes no clauses or connectors: everything
 // that is not a directive or comment is opaque text (Word / Other / Space / Eol / Paren).
@@ -122,10 +122,6 @@ func (p *parser) parse() (ast.Node, error) {
 			if err := p.parseFor(); err != nil {
 				return nil, err
 			}
-		case token.With:
-			if err := p.parseWith(); err != nil {
-				return nil, err
-			}
 		case token.ParserComment:
 			// dropped
 		}
@@ -191,7 +187,7 @@ func (p *parser) parseEnd() error {
 		return err
 	}
 	if p.empty() {
-		return p.errf("the corresponding if, for, or with directive is not found")
+		return p.errf("the corresponding if or for directive is not found")
 	}
 	p.pushNode(ast.EndDirective{Loc: p.loc, Token: p.tok})
 	block := p.pop()
@@ -224,16 +220,6 @@ func (p *parser) parseFor() error {
 	}
 	p.push(&forBlockReducer{loc: p.loc})
 	p.push(&forDirectiveReducer{loc: p.loc, token: p.tok, id: id, expr: expr})
-	return nil
-}
-
-func (p *parser) parseWith() error {
-	expr := strings.TrimSpace(strings.TrimPrefix(strip(p.tok, "/*%", "*/"), "with"))
-	if expr == "" {
-		return p.errf("the expression is not found in the with directive")
-	}
-	p.push(&withBlockReducer{loc: p.loc})
-	p.push(&withDirectiveReducer{loc: p.loc, token: p.tok, expr: expr})
 	return nil
 }
 

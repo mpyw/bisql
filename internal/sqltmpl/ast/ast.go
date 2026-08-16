@@ -1,6 +1,6 @@
 // Package ast is the template tree. Since the explicit-model redesign the tree carries no
 // clause/connector structure (bisql removes nothing implicitly): it is opaque text and leaf
-// tokens interspersed with directives (bind, literal, embedded, if/for/with) and comments.
+// tokens interspersed with directives (bind, literal, if/for) and comments.
 // Every node reproduces its original text via Text() (lossless); parser tests assert that
 // Text() reproduces the input.
 package ast
@@ -101,23 +101,6 @@ type ForDirective struct {
 }
 
 func (n ForDirective) Text() string { return n.Token + join(n.Nodes) }
-
-// WithBlock is /*%with e*/ ... /*%end*/.
-type WithBlock struct {
-	With WithDirective
-	End  EndDirective
-}
-
-func (n WithBlock) Text() string { return n.With.Text() + n.End.Text() }
-
-type WithDirective struct {
-	Loc        Location
-	Token      string
-	Expression string
-	Nodes      []Node
-}
-
-func (n WithDirective) Text() string { return n.Token + join(n.Nodes) }
 
 // BindValue is /* expr */literal. Test is the test literal (a Word or Paren) that follows;
 // it keeps the raw template runnable and is replaced at build time by a placeholder — or,

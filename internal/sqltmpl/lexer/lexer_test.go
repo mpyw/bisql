@@ -87,7 +87,6 @@ func TestLexer_Directives(t *testing.T) {
 	assertTokens(t, "/*%elseif a*/", []tk{{token.Elseif, "/*%elseif a*/"}})
 	assertTokens(t, "/*%else*/", []tk{{token.Else, "/*%else*/"}})
 	assertTokens(t, "/*%for x in xs*/", []tk{{token.For, "/*%for x in xs*/"}})
-	assertTokens(t, "/*%with u*/", []tk{{token.With, "/*%with u*/"}})
 	assertTokens(t, "/*%end*/", []tk{{token.End, "/*%end*/"}})
 }
 

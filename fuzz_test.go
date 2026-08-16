@@ -14,7 +14,6 @@ func FuzzBuild(f *testing.F) {
 		"select 1 /*%if a*/x/*%elseif b*/y/*%else*/z/*%end*/",
 		"where 1 = 0 /*%for kw in kws*/or x like /*kw*/'y'/*%end*/",
 		"where id in /*ids*/(1, 2)",
-		"where /*%with u*/a = /*a*/0/*%end*/",
 		"select /*a*/1::int, ANY(/*b*/'{}'::int[])",
 		"'{}' \"id\" `x` -- c\n/** c2 */",
 	}

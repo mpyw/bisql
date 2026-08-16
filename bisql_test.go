@@ -164,17 +164,6 @@ func TestForLoop(t *testing.T) {
 	})
 }
 
-func TestWith(t *testing.T) {
-	run(t, []buildCase{
-		{
-			name:   "map members",
-			tmpl:   "where /*%with u*/name = /*name*/'x' and age > /*age*/0/*%end*/",
-			params: map[string]any{"u": map[string]any{"name": "bob", "age": 20}},
-			sql:    "where name = ? and age > ?", args: []any{"bob", 20},
-		},
-	})
-}
-
 func TestComments(t *testing.T) {
 	run(t, []buildCase{
 		{name: "block comment kept", tmpl: "select 1 /** keep */ from t", sql: "select 1 /** keep */ from t"},

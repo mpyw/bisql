@@ -25,7 +25,7 @@ states, dangling connectors inside parens, whitespace artifacts). bisql abandons
 **The renderer emits the template verbatim.** It only:
 
 - evaluates `/* */` bind and `/*^ */` literal directives,
-- chooses `/*%if*/` branches, iterates `/*%for*/`, injects `/*%with*/` members,
+- chooses `/*%if*/` branches, iterates `/*%for*/`,
 - drops `/*%! ... */` parser comments.
 
 Everything else — clause keywords, connectors, commas, whitespace — passes through
@@ -54,13 +54,14 @@ Consequences that fall out of "emit verbatim":
 | `/*^ expr */literal` | inline SQL literal (dialect-formatted; injection-prone) |
 | `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/` | conditional |
 | `/*%for x in xs*/ … /*%end*/` | iteration; exposes `x_index`, `x_has_next` (usable in `/*%if*/`) |
-| `/*%with e*/ … /*%end*/` | expose a struct/map's fields as scope variables |
 | `/*%! ... */` | parser comment (removed); also hosts `@include` |
 | `/*%! @include name */` | preprocessor: splice a static fragment |
 
-Removed vs. earlier iterations / Komapper: `/*> name */` (partial) and `/*# expr */`
-(embedded) are **gone**; `/*#…*/` is now an ordinary comment. Composition is `@include`
-only; there is no raw-text substitution.
+Removed vs. earlier iterations / Komapper: `/*> name */` (partial), `/*# expr */`
+(embedded), and `/*%with e*/` are **gone**; `/*#…*/` is now an ordinary comment.
+Composition is `@include` only; there is no raw-text substitution. `/*%with*/` was dropped
+as redundant sugar — expr-lang already does qualified access, so `/*criteria.min*/0` covers
+what `/*%with criteria*/ /*min*/0 /*%end*/` did.
 
 ### Bind expansion is keyed on the test-literal shape
 
