@@ -9,10 +9,22 @@ TEMPLATE API; the semantics are bisql's own **explicit model** (see below).
 tmpl, err := bisql.Parse(sqlText, bisql.WithDialect(dialect.PostgreSQL))
 stmt, err := tmpl.Build(map[string]any{"name": "SCOTT", "minAge": 20})
 
-stmt.SQL          // "... where 1 = 1 and name = $1 and age >= $2"  (execute this)
-stmt.Args         // []any{"SCOTT", 20}
-stmt.SQLWithArgs  // "... where 1 = 1 and name = 'SCOTT' and age >= 20"  (review only; never execute)
+stmt.SQL             // "... where 1 = 1 and name = $1 and age >= $2"  (execute this)
+stmt.Args            // []any{"SCOTT", 20}
+stmt.SQLWithArgs()   // "... where 1 = 1 and name = 'SCOTT' and age >= 20"  (review only; never execute)
 ```
+
+`bisql.Parse` is a shortcut. To configure the dialect/evaluator/loader once and parse many
+templates, build a `Parser` and reuse it:
+
+```go
+p := bisql.NewParser(bisql.WithDialect(dialect.PostgreSQL))
+t1, _ := p.Parse(sqlA)
+t2, _ := p.Parse(sqlB) // same config, no repeated options
+```
+
+`SQLWithArgs()` is a method computed on demand: a statement you only execute never pays to
+build the values-embedded review string.
 
 ## What is 2-way SQL
 
@@ -151,7 +163,7 @@ with `bisql.WithEvaluator`.
 ## Layout
 
 ```
-bisql            (root) Parse / Expand / Template / Statement / Option
+bisql            (root) NewParser / Parser / Parse / Expand / Template / Statement / Option
                  include: Loader + RegistryLoader / FSLoader / LoaderFunc / WithLoader
 dialect/         Dialect + placeholders (MySQL/PostgreSQL/Oracle/SQLServer) + literal format
 expr/            Evaluator interface + Scope (plug your own)

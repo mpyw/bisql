@@ -55,8 +55,11 @@ func TestRender_Verbatim(t *testing.T) {
 
 func TestRender_Bind(t *testing.T) {
 	res := renderTmpl(t, "a = /*x*/0", expr.Scope{"x": 5}, qmark)
-	if res.SQL != "a = ?" || !reflect.DeepEqual(res.Args, []any{5}) || res.SQLWithArgs != "a = 5" {
-		t.Errorf("SQL=%q Args=%#v With=%q", res.SQL, res.Args, res.SQLWithArgs)
+	// The placeholder occupies bytes [4,5) of "a = ?"; the span lets a caller splice the
+	// literal back in on demand (that is what bisql.Statement.SQLWithArgs does).
+	if res.SQL != "a = ?" || !reflect.DeepEqual(res.Args, []any{5}) ||
+		!reflect.DeepEqual(res.ArgSpans, [][2]int{{4, 5}}) {
+		t.Errorf("SQL=%q Args=%#v Spans=%#v", res.SQL, res.Args, res.ArgSpans)
 	}
 }
 

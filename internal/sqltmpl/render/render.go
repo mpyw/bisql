@@ -12,13 +12,14 @@ import (
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 )
 
-// Result is the rendered statement. SQL/Args are the executable placeholder form;
-// SQLWithArgs is the values-embedded form for snapshots/review (never execute it). All
-// three are produced in one pass.
+// Result is the rendered statement: the executable placeholder form (SQL) and its bind
+// Args. ArgSpans[i] is the [start,end) byte range in SQL of the placeholder for Args[i]
+// (they are appended together, so the slices stay aligned); callers splice literals into
+// those ranges to build the values-embedded review form lazily, without a second render.
 type Result struct {
-	SQL         string
-	Args        []any
-	SQLWithArgs string
+	SQL      string
+	Args     []any
+	ArgSpans [][2]int
 }
 
 // Config carries everything the renderer needs beyond the tree and the scope.
@@ -39,7 +40,7 @@ func Render(n ast.Node, scope expr.Scope, cfg Config) (Result, error) {
 	if err := r.visit(n); err != nil {
 		return Result{}, err
 	}
-	return Result{SQL: r.sqlBuf.String(), Args: r.args, SQLWithArgs: r.litBuf.String()}, nil
+	return Result{SQL: r.sqlBuf.String(), Args: r.args, ArgSpans: r.spans}, nil
 }
 
 type renderer struct {
@@ -49,29 +50,25 @@ type renderer struct {
 
 	scope  expr.Scope
 	sqlBuf strings.Builder // executable placeholder form
-	litBuf strings.Builder // values-embedded form
 	args   []any
-	nargs  int // running bind count = placeholder index source
+	spans  [][2]int // byte range of each placeholder in sqlBuf, aligned with args
+	nargs  int      // running bind count = placeholder index source
 }
 
-// emit writes literal text to both buffers.
+// emit writes literal text to the SQL buffer.
 func (r *renderer) emit(s string) {
 	r.sqlBuf.WriteString(s)
-	r.litBuf.WriteString(s)
 }
 
-// bindOne emits one bound value: a placeholder into the executable buffer (and into args),
-// and an inline literal into the review buffer (best-effort; a format failure falls back to
-// %v rather than failing the render).
+// bindOne emits one bound value: a placeholder into the SQL buffer and the value into args,
+// recording the placeholder's byte range so the values-embedded form can be reconstructed
+// later without re-rendering.
 func (r *renderer) bindOne(v any) {
 	r.nargs++
+	start := r.sqlBuf.Len()
 	r.sqlBuf.WriteString(r.ph(r.nargs, ""))
+	r.spans = append(r.spans, [2]int{start, r.sqlBuf.Len()})
 	r.args = append(r.args, v)
-	litStr, err := r.lit(v)
-	if err != nil {
-		litStr = fmt.Sprintf("%v", v)
-	}
-	r.litBuf.WriteString(litStr)
 }
 
 func (r *renderer) visit(n ast.Node) error {

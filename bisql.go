@@ -3,6 +3,7 @@ package bisql
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/mpyw/bisql/dialect"
 	"github.com/mpyw/bisql/expr"
@@ -22,13 +23,40 @@ type Template struct {
 
 // Statement is the result of Build.
 //
-//   - SQL:         placeholder form (for execution)
-//   - Args:        bind arguments
-//   - SQLWithArgs: values-embedded form (for snapshots/review; do not execute)
+//   - SQL:  placeholder form (for execution)
+//   - Args: bind arguments
+//
+// The values-embedded form is available via the SQLWithArgs method (computed on demand).
 type Statement struct {
-	SQL         string
-	Args        []any
-	SQLWithArgs string
+	SQL  string
+	Args []any
+
+	lit   dialect.Literal // for the lazily-built SQLWithArgs
+	spans [][2]int        // placeholder byte ranges in SQL, aligned with Args
+}
+
+// SQLWithArgs returns the values-embedded form of the statement — Args inlined as SQL
+// literals — for snapshots and review. Never execute it: literals are not a substitute for
+// bound parameters (injection). It is computed on demand from Args, so a Statement you only
+// execute never pays for it; formatting is best-effort (a value the dialect cannot format
+// falls back to Go's %v).
+func (s Statement) SQLWithArgs() string {
+	if len(s.spans) == 0 {
+		return s.SQL
+	}
+	var b strings.Builder
+	prev := 0
+	for i, sp := range s.spans {
+		b.WriteString(s.SQL[prev:sp[0]])
+		lit, err := s.lit(s.Args[i])
+		if err != nil {
+			lit = fmt.Sprintf("%v", s.Args[i])
+		}
+		b.WriteString(lit)
+		prev = sp[1]
+	}
+	b.WriteString(s.SQL[prev:])
+	return b.String()
 }
 
 // Option adjusts Parse / Expand.
@@ -65,14 +93,26 @@ func (c config) resolver() func(string) (string, error) {
 	return c.loader.Load
 }
 
-// Parse parses a template string, expanding any /*%! @include ... */ against the loader set
-// with WithLoader (absent a loader, @include is an error).
-func Parse(src string, opts ...Option) (*Template, error) {
+// Parser holds parse-time configuration (dialect, evaluator, loader) so it can be built once
+// with NewParser and reused to parse many templates without repeating options. It is
+// immutable and safe for concurrent use.
+type Parser struct {
+	c config
+}
+
+// NewParser returns a Parser configured by opts (dialect, evaluator, loader).
+func NewParser(opts ...Option) *Parser {
 	c := defaultConfig()
 	for _, o := range opts {
 		o(&c)
 	}
-	expanded, err := preprocess.Expand(src, c.resolver())
+	return &Parser{c: c}
+}
+
+// Parse parses a template string, expanding any /*%! @include ... */ against the parser's
+// loader (absent a loader, @include is an error).
+func (p *Parser) Parse(src string) (*Template, error) {
+	expanded, err := preprocess.Expand(src, p.c.resolver())
 	if err != nil {
 		return nil, err
 	}
@@ -80,17 +120,24 @@ func Parse(src string, opts ...Option) (*Template, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Template{root: root, dialect: c.dialect, evaluator: c.evaluator}, nil
+	return &Template{root: root, dialect: p.c.dialect, evaluator: p.c.evaluator}, nil
 }
 
 // Expand runs only the @include preprocessor and returns the fully expanded, still-2-way
 // template text (useful to snapshot or run through EXPLAIN ahead of time).
+func (p *Parser) Expand(src string) (string, error) {
+	return preprocess.Expand(src, p.c.resolver())
+}
+
+// Parse is a shortcut for NewParser(opts...).Parse(src); use NewParser to reuse one
+// configuration across many templates.
+func Parse(src string, opts ...Option) (*Template, error) {
+	return NewParser(opts...).Parse(src)
+}
+
+// Expand is a shortcut for NewParser(opts...).Expand(src).
 func Expand(src string, opts ...Option) (string, error) {
-	c := defaultConfig()
-	for _, o := range opts {
-		o(&c)
-	}
-	return preprocess.Expand(src, c.resolver())
+	return NewParser(opts...).Expand(src)
 }
 
 // Build assembles (SQL, Args) from the given parameters, which may be a map[string]any,
@@ -108,7 +155,7 @@ func (t *Template) Build(params any) (Statement, error) {
 	if err != nil {
 		return Statement{}, err
 	}
-	return Statement{SQL: res.SQL, Args: res.Args, SQLWithArgs: res.SQLWithArgs}, nil
+	return Statement{SQL: res.SQL, Args: res.Args, lit: t.dialect.Literal(), spans: res.ArgSpans}, nil
 }
 
 // toScope converts params into an expression scope. It accepts nil, a map[string]any, an

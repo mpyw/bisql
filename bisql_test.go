@@ -40,8 +40,8 @@ func run(t *testing.T, cases []buildCase) {
 			if !reflect.DeepEqual(nilIfEmpty(stmt.Args), nilIfEmpty(c.args)) {
 				t.Errorf("Args\n got: %#v\nwant: %#v", stmt.Args, c.args)
 			}
-			if c.withArgs != "" && stmt.SQLWithArgs != c.withArgs {
-				t.Errorf("SQLWithArgs\n got: %q\nwant: %q", stmt.SQLWithArgs, c.withArgs)
+			if c.withArgs != "" && stmt.SQLWithArgs() != c.withArgs {
+				t.Errorf("SQLWithArgs\n got: %q\nwant: %q", stmt.SQLWithArgs(), c.withArgs)
 			}
 		})
 	}
@@ -387,5 +387,48 @@ func TestInvalidParams(t *testing.T) {
 	tmpl, _ := bisql.Parse("select 1")
 	if _, err := tmpl.Build(42); err == nil {
 		t.Error("int params should error")
+	}
+}
+
+// A Parser is configured once and reused across templates; its dialect (and loader) apply to
+// every Parse without repeating options.
+func TestNewParserReuse(t *testing.T) {
+	p := bisql.NewParser(
+		bisql.WithDialect(dialect.PostgreSQL),
+		bisql.WithLoader(bisql.NewRegistry().Register("f", "name = /*name*/'x'")),
+	)
+	t1, err := p.Parse("where a = /*a*/0 and b = /*b*/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s1, _ := t1.Build(map[string]any{"a": 1, "b": 2})
+	if s1.SQL != "where a = $1 and b = $2" { // dialect from the Parser, no per-call option
+		t.Errorf("t1 SQL = %q", s1.SQL)
+	}
+	t2, err := p.Parse("where /*%! @include f */ 1 = 1") // loader from the Parser
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2, _ := t2.Build(map[string]any{"name": "SCOTT"})
+	if s2.SQL != "where name = $1 1 = 1" {
+		t.Errorf("t2 SQL = %q", s2.SQL)
+	}
+}
+
+// SQLWithArgs is computed on demand and empty when there are no binds.
+func TestSQLWithArgsLazy(t *testing.T) {
+	tmpl, _ := bisql.Parse("select id from t where id in /*ids*/(0) and name = /*name*/'x'")
+	stmt, err := tmpl.Build(map[string]any{"ids": []any{1, 2}, "name": "SCOTT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stmt.SQLWithArgs(); got != "select id from t where id in (1, 2) and name = 'SCOTT'" {
+		t.Errorf("SQLWithArgs = %q", got)
+	}
+	// No binds: SQLWithArgs is just the SQL.
+	plain, _ := bisql.Parse("select 1 from t")
+	ps, _ := plain.Build(nil)
+	if got := ps.SQLWithArgs(); got != ps.SQL {
+		t.Errorf("no-bind SQLWithArgs = %q, want %q", got, ps.SQL)
 	}
 }

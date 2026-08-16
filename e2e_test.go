@@ -76,7 +76,7 @@ func runGolden(t *testing.T, template string, cases []goldenCase) {
 			}
 			checkGolden(t, filepath.Join(dir, c.name+".output.sql"), stmt.SQL)
 			if c.embedded {
-				checkGolden(t, filepath.Join(dir, c.name+".embedded.sql"), stmt.SQLWithArgs)
+				checkGolden(t, filepath.Join(dir, c.name+".embedded.sql"), stmt.SQLWithArgs())
 			}
 		})
 	}
