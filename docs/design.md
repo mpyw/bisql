@@ -1,99 +1,141 @@
-# bisql design notes
+# bisql — Design Notes
+
+This document records the design rationale of bisql. The directive reference and the
+authoring rules are maintained in the [README](../README.md); this document explains the
+decisions behind them and is not a usage guide.
 
 ## Goal
 
-A **2-way SQL template engine for Go**: directives written as SQL comments, so a template is
-runnable as-is in a SQL client, while an application converts it to `(SQL, args)`. The syntax
-is inspired by Komapper's TEMPLATE API; the semantics are bisql's **explicit model**. For the
-directive reference and authoring rules, see the [README](../README.md).
+bisql is a two-way SQL template engine for Go. Directives are expressed as SQL comments, so a
+template is executable without modification in a SQL client, while an application converts the
+same text into a parameterized statement `(SQL, Args)`. The directive syntax is inspired by
+Komapper's TEMPLATE API; the runtime semantics are defined by bisql's explicit model.
 
 ## Non-goals
 
-- Parsing SQL as a grammar. bisql stays at directive-level tokenization; the SQL body is
-  opaque.
-- Implicit cleanup. bisql removes **nothing** it wasn't told to (see below).
-- ORM / query builder / migrations / connection handling. bisql only produces
-  `template → (SQL, args)`.
+- **Parsing SQL as a grammar.** bisql operates at the level of directive tokenization; the SQL
+  body is treated as opaque text.
+- **Implicit cleanup.** bisql removes nothing it was not explicitly instructed to remove.
+- **ORM, query builder, migrations, connection handling.** bisql produces only the
+  transformation `template → (SQL, Args)`.
 
-## The explicit model (the core decision)
+## The explicit model
 
-Earlier iterations mirrored Komapper's `available`-flag machinery: empty clauses were
-dropped, dangling `AND`/`OR` were removed, whitespace was normalized. That machinery is the
-single largest source of complexity and edge-case bugs (placeholder-numbering across child
-states, dangling connectors inside parens, whitespace artifacts). bisql abandons it.
+Earlier iterations reproduced Komapper's `available`-flag mechanism: empty clauses were
+removed, dangling `AND`/`OR` connectors were deleted, and whitespace was normalized. That
+mechanism was the single largest source of implementation complexity and edge-case defects,
+including placeholder numbering across nested states, dangling connectors inside parentheses,
+and whitespace artifacts. bisql abandons it in favor of an explicit model.
 
-**The renderer emits the template verbatim.** It only:
+Under the explicit model, the renderer emits the template verbatim and performs only the
+following operations:
 
-- evaluates `/* */` bind and `/*^ */` literal directives,
-- chooses `/*%if*/` branches, iterates `/*%for*/`,
-- drops `/*%! ... */` parser comments.
+- evaluation of the `/* */` bind directive and the `/*^ */` literal directive;
+- selection of a `/*%if*/` branch and iteration of `/*%for*/`;
+- removal of `/*%! … */` parser comments.
 
-Everything else — clause keywords, connectors, commas, whitespace — passes through
-unchanged. Output is therefore a pure function of the template text and the chosen branches,
-trivially predictable.
+All other text — clause keywords, connectors, commas, and whitespace — passes through
+unchanged. The output is therefore a deterministic function of the template text and the set
+of evaluated branches.
 
-The cost is an **authoring discipline**: the template must anchor its dynamic parts so no
-separator is ever left dangling (`1 = 1` / `1 = 0`, a trailing `id`, connectors inside
-`/*%if*/`, `/*%if x_has_next*/,/*%end*/` in loops). This is documented prominently in the
-README's "Authoring rules". It is the well-understood MyBatis `1=1` style, made uniform.
+The cost of this model is an authoring obligation: the template must anchor its dynamic
+fragments so that no separator is ever left dangling (`1 = 1` / `1 = 0`, a trailing sort key,
+connectors placed inside `/*%if*/`, and a conditional separator `/*%if x_has_next*/,/*%end*/`
+in loops). These obligations are specified in the README under "Authoring rules". The approach
+is the established MyBatis `1 = 1` convention, applied uniformly.
 
-Consequences that fall out of "emit verbatim":
+Three consequences follow directly from verbatim emission:
 
-- **No clause tokenization.** The lexer no longer recognizes `select`/`where`/`and`/`union`
-  etc.; they are ordinary words. The whole clause/connector/set apparatus is gone.
-- **Placeholder numbering** is one renderer-global counter. Binds in unrendered branches or
-  unreached loop iterations are never visited, so numbering is gap-free for `$n`/`:n`/`@pn`.
-- **Whitespace** is whatever the template says. `1 = 1\n\n\norder by id` keeps its blank
-  lines — valid SQL, if not always pretty.
+- **No clause tokenization.** The lexer does not recognize `select`, `where`, `and`, `union`,
+  or any other keyword; these are ordinary words. The clause, connector, and set-operation
+  apparatus is absent entirely.
+- **Global placeholder numbering.** Placeholder indices are produced by a single
+  renderer-global counter. Binds in unselected branches and unreached loop iterations are
+  never visited, so numbering is contiguous for the `$n`, `:n`, and `@pn` forms.
+- **Whitespace fidelity.** Whitespace is preserved exactly as written, including blank lines.
+
+## Rendering output
+
+A single render pass produces the parameterized `SQL` and the `Args` slice. It does not build
+the values-embedded rendering eagerly; instead, it records the byte range of each placeholder
+within `SQL`. `Statement.SQLWithArgs` reconstructs the values-embedded form on demand by
+splicing the arguments into those ranges. Consequently, a statement that is built and executed
+but never inspected does not incur the cost of literal formatting. The recorded ranges remain
+aligned with `Args` because a placeholder and its argument are appended together during
+rendering.
 
 ## Directives
 
-| syntax | meaning |
-|---|---|
-| `/* expr */literal` | bind placeholder (`literal` is the 2-way test value) |
-| `/*^ expr */literal` | inline SQL literal (dialect-formatted; injection-prone) |
-| `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/` | conditional |
-| `/*%for x in xs*/ … /*%end*/` | iteration; exposes `x_index`, `x_has_next` (usable in `/*%if*/`) |
-| `/*%! ... */` | parser comment (removed); also hosts `@include` |
-| `/*%! @include name */` | preprocessor: splice a static fragment |
+| Syntax                                              | Meaning                                                              |
+|:----------------------------------------------------|:--------------------------------------------------------------------|
+| `/* expr */literal`                                 | Bind placeholder; `literal` is the two-way test value.              |
+| `/*^ expr */literal`                                | Inline SQL literal (dialect-formatted; injection-prone).            |
+| `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/`  | Conditional selection of a branch.                                  |
+| `/*%for x in xs*/ … /*%end*/`                       | Iteration; exposes `x_index` and `x_has_next` (usable in `/*%if*/`). |
+| `/*%! … */`                                         | Parser comment (removed); also hosts `@include`.                    |
+| `/*%! @include name */`                             | Preprocessor directive; splices a static fragment.                  |
 
-Removed vs. earlier iterations / Komapper: `/*> name */` (partial), `/*# expr */`
-(embedded), and `/*%with e*/` are **gone**; `/*#…*/` is now an ordinary comment.
-Composition is `@include` only; there is no raw-text substitution. `/*%with*/` was dropped
-as redundant sugar — expr-lang already does qualified access, so `/*criteria.min*/0` covers
-what `/*%with criteria*/ /*min*/0 /*%end*/` did.
+The following constructs from earlier iterations and from Komapper have been removed:
+`/*> name */` (partial), `/*# expr */` (embedded), and `/*%with e*/`. A comment of the form
+`/*# … */` is now an ordinary comment. Composition is provided exclusively by `@include`;
+there is no raw-text substitution. `/*%with*/` was removed as redundant: because the
+expression language already supports qualified access, `/*criteria.min*/0` expresses what
+`/*%with criteria*/ /*min*/0 /*%end*/` previously expressed.
 
-### Bind expansion is keyed on the test-literal shape
+### Bind expansion by test-literal shape
 
-- `(...)` test → expand an iterable into a placeholder list (empty → `(null)`; slice
-  elements → row tuples).
-- scalar test → bind the value as-is, so a slice becomes a **single array parameter** for
-  Postgres `= ANY($1::type[])`. Whether the driver/dialect supports array binding is the
-  driver's concern (Postgres only in practice).
+The shape of the test literal, determined from the template text, selects the expansion
+strategy:
 
-## @include preprocessing
+- A parenthesized test `(...)` expands an iterable into a placeholder list. An empty iterable
+  renders as `(null)`; a slice of slices renders as row tuples.
+- A scalar test binds the value as a single parameter. A slice therefore becomes one array
+  parameter, which is the form required by the PostgreSQL `= ANY($1::type[])` construct.
+  Whether the target dialect and driver support array binding is outside bisql's scope; in
+  practice this applies to PostgreSQL.
 
-`internal/sqltmpl/preprocess` runs before lexing. It scans the raw text (skipping string and
-quoted-identifier spans and `--` line comments) for `/*%! @include name */`, and replaces
-each with the resolved fragment text, recursively, with cycle detection and a depth bound.
-The result is a fully expanded, still-2-way template. Fragment loading is pluggable via the
-`Loader` interface (`Load(name) (string, error)`); bisql ships `RegistryLoader` (in-memory)
-and `FSLoader` (`fs.FS`), plus a `LoaderFunc` adapter, and there is no default. `Parse(src,
-WithLoader(l))` wires it in; `Expand(src, WithLoader(l))` returns the expanded text (for
-snapshots / EXPLAIN).
-Because the directive lives in a parser comment, a raw template still runs (without the
-fragment) when pasted into a client.
+## `@include` preprocessing
 
-## Expression evaluator
+The `internal/sqltmpl/preprocess` package runs before lexing. It scans the raw text — skipping
+string spans, quoted-identifier spans, and `--` line comments — for `/*%! @include name */`
+and replaces each occurrence with the resolved fragment text. Resolution is recursive and is
+bounded by cycle detection and a maximum depth. The result is a fully expanded template that
+remains two-way.
 
-- `expr.Evaluator`: `Eval(expression string, scope Scope) (any, error)`.
-- Default (`internal/exprlang`) wraps `github.com/expr-lang/expr`. Null literal is `nil`, but
-  `x != null` also works (undefined → nil). A nil/absent `/*%if*/` is falsy; a non-nil
-  non-bool is an error. A nil/absent `/*%for*/` iterable is zero iterations.
-- Swappable via `bisql.WithEvaluator`.
+Fragment resolution is delegated to the `Loader` interface:
+
+```go
+type Loader interface {
+	Load(name string) (string, error)
+}
+```
+
+bisql provides `RegistryLoader` (in-memory), `FSLoader` (over an `fs.FS`), and a `LoaderFunc`
+adapter. There is no default loader. `Parse` wires the configured loader into the preprocessor,
+and `Expand` returns the expanded text for snapshots and pre-execution inspection. Because the
+directive is carried on the parser-comment channel, a template that references a fragment still
+executes verbatim in a client, without the fragment.
+
+## Expression evaluation
+
+The expression layer is separated from the template layer behind the `expr.Evaluator`
+interface:
+
+```go
+type Evaluator interface {
+	Eval(expression string, scope Scope) (any, error)
+}
+```
+
+The default implementation (`internal/exprlang`) wraps `github.com/expr-lang/expr`. The null
+literal is `nil`; the idiom `x != null` is also accepted because an undefined identifier
+resolves to nil. A nil or absent `/*%if*/` condition evaluates as false, and a non-nil,
+non-boolean condition is an error. A nil or absent `/*%for*/` iterable yields zero iterations.
+The evaluator is replaceable through `bisql.WithEvaluator`.
 
 ## Dialect
 
-Abstracts placeholder generation (MySQL `?`, PostgreSQL `$n`, Oracle `:n`, SQL Server `@pn`)
-and literal formatting (for `SQLWithArgs` / `/*^ */`). bisql does not abstract SQL dialects
-themselves; dialect-specific SQL (`= ANY`, `order by null`, `true`/`false`) is the author's.
+The `dialect` package abstracts placeholder generation (`?` for MySQL, `$n` for PostgreSQL,
+`:n` for Oracle, `@pn` for SQL Server) and literal formatting (used by `SQLWithArgs` and the
+`/*^ */` directive). bisql does not abstract SQL dialects themselves; dialect-specific SQL such
+as `= ANY`, `order by null`, and the `true`/`false` literals is the author's responsibility.

@@ -24,6 +24,9 @@ authoring rules).
 - **Placeholder numbering is a single renderer-global counter** (`renderer.nargs`), not a
   per-state length — binds in unrendered branches/loops are never counted, so numbering is
   gap-free across every dialect (`$n`/`:n`/`@pn`).
+- **`SQLWithArgs` is derived lazily.** Render produces `SQL`, `Args`, and each placeholder's
+  byte range (`Result.ArgSpans`, aligned with `Args`); `Statement.SQLWithArgs()` splices
+  literals into those ranges on demand. The renderer does not build a values-embedded buffer.
 - **IN-expansion is keyed on the bind's test-literal shape**, not the value type: a `(...)`
   test expands to a placeholder list; a scalar test binds the value as-is (a slice becomes
   one array parameter, for Postgres `= ANY`).
