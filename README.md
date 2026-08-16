@@ -144,10 +144,10 @@ These directives are evaluated during rendering and produce the SQL and its argu
 
 | Syntax                                              | Meaning                                                                                     |
 |:----------------------------------------------------|:--------------------------------------------------------------------------------------------|
-| `/* expr */literal`                                 | **Bind.** Emits a placeholder and binds the evaluated value; `literal` is the two-way test value. |
-| `/*^ expr */literal`                                | **Literal.** Inlines the evaluated value as a SQL literal (for review output and DDL; injection-prone). |
-| `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/`  | Conditional selection of a single branch.                                                   |
-| `/*%for x in xs*/ … /*%end*/`                       | Iteration over an iterable; exposes `x_index` and `x_has_next`.                             |
+| `/* expr */literal`                                 | **Bind.** Emits a placeholder and binds the value of `expr` as an argument, replacing the trailing `literal`. That `literal` is the two-way sample value, used only when the raw template is run in a client and ignored at build time. |
+| `/*^ expr */literal`                                | **Literal.** Inlines the value of `expr` into the SQL as a formatted literal, replacing the trailing `literal`, instead of binding it. For trusted values that cannot be parameterized (for example, DDL); injection-prone. |
+| `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/`  | **Conditional.** Renders the first branch whose condition is true, or the `/*%else*/` branch if none is; the other branches are omitted. |
+| `/*%for x in xs*/ … /*%end*/`                       | **Iteration.** Renders the body once for each element of `xs`, bound to `x`; exposes `x_index` and `x_has_next`. |
 
 ### Preprocessor directives
 
