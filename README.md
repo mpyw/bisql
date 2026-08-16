@@ -147,12 +147,17 @@ hints (`/*+ … */`) — pass through to the output unchanged.
 
 The loop variable of `/*%for*/` is accompanied by two derived variables that are valid inside
 nested directives: `<name>_index` (zero-based position) and `<name>_has_next` (true for every
-element except the last). The following fragment renders a comma-separated placeholder list
-with no trailing comma (for `cols` of length three, `$1, $2, $3`):
+element except the last). The following fragment renders a comma-separated placeholder list of
+bound values with no trailing comma (for `ids` of length three, `$1, $2, $3`):
 
 ```sql
-/*%for c in cols*//*c*/0/*%if c_has_next*/, /*%end*//*%end*/
+/*%for id in ids*//*id*/0/*%if id_has_next*/, /*%end*//*%end*/
 ```
+
+> [!NOTE]
+> `/*%for*/` iterates over **values**, which are bound as parameters. It does not emit column
+> names or other identifiers; those cannot be parameterized and must be selected with a
+> `/*%if*/` whitelist (see [Dynamic identifiers](#dynamic-identifiers)).
 
 ### Bind values and IN-list expansion
 
@@ -299,8 +304,8 @@ left dangling.
 |:------------------|:----------------------------------------------------------------------------------------|
 | `WHERE` / `HAVING`| Introduce a constant predicate (`1 = 1` for `AND` chains, `1 = 0` for `OR` chains); each condition carries a leading `and`/`or`. |
 | `ORDER BY`        | Terminate the list with a stable key (for example, `id`).                               |
-| `SELECT` / `SET`  | Begin with a fixed column and prefix additions with a comma, or construct the list with `/*%for*/`. |
-| List via `/*%for*/`| Append the separator conditionally with `/*%if x_has_next*/,/*%end*/`.                  |
+| `SELECT` / `SET` column list | Begin with a fixed column and add each optional, whitelisted column with a leading comma inside a `/*%if*/`. |
+| Value list via `/*%for*/` | Emit the bound values and append the separator conditionally with `/*%if x_has_next*/,/*%end*/`. |
 | `JOIN` / `UNION`  | Place the connector inside the `/*%if*/` block so that each fragment is self-contained. |
 
 ```sql
@@ -314,9 +319,14 @@ where 1 = 1
 select * from employees
 order by /*%if byName*/name, /*%end*/emp_no
 
--- SELECT list: fixed leading column, additions prefixed with a comma
-select emp_no /*%for c in cols*/, /*c*/0/*%end*/
+-- SELECT list: fixed leading column; optional known columns added with a leading comma.
+-- Columns are whitelisted with /*%if*/, never bound.
+select emp_no /*%if withName*/, name/*%end*/ /*%if withDept*/, dept_no/*%end*/
 from employees
+
+-- Value list via iteration: a separator is appended between elements (not after the last).
+insert into audit (emp_no, action)
+values /*%for e in entries*/(/*e.empNo*/0, /*e.action*/'x')/*%if e_has_next*/, /*%end*//*%end*/
 ```
 
 > [!IMPORTANT]
