@@ -1,6 +1,9 @@
 package bisql
 
 import (
+	"fmt"
+	"reflect"
+
 	"github.com/mpyw/bisql/internal/exprlang"
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 	"github.com/mpyw/bisql/internal/sqltmpl/parser"
@@ -69,28 +72,21 @@ func (t *Template) Build(params any) (Statement, error) {
 	if err != nil {
 		return Statement{}, err
 	}
-	cfg := render.Config{
+	res, err := render.Render(t.root, scope, render.Config{
 		Evaluator:   t.evaluator,
 		Placeholder: t.dialect.Placeholder(),
 		Literal:     t.dialect.Literal(),
 		Resolve:     t.resolve,
-	}
-	res, err := render.Render(t.root, scope, cfg)
+	})
 	if err != nil {
 		return Statement{}, err
 	}
-	// Second pass with values embedded inline, for the snapshot/review form.
-	cfg.EmbedValues = true
-	embedded, err := render.Render(t.root, scope, cfg)
-	if err != nil {
-		return Statement{}, err
-	}
-	return Statement{SQL: res.SQL, Args: res.Args, SQLWithArgs: embedded.SQL}, nil
+	return Statement{SQL: res.SQL, Args: res.Args, SQLWithArgs: res.SQLWithArgs}, nil
 }
 
-// toScope converts params into an expression scope.
-//
-// TODO(M3): expand structs into fields via reflection. Only maps are handled for now.
+// toScope converts params into an expression scope. It accepts nil, a map[string]any, an
+// expr.Scope, or a struct (or pointer to one), whose exported fields become scope entries
+// keyed by field name.
 func toScope(params any) (expr.Scope, error) {
 	switch p := params.(type) {
 	case nil:
@@ -99,7 +95,23 @@ func toScope(params any) (expr.Scope, error) {
 		return expr.Scope(p), nil
 	case expr.Scope:
 		return p, nil
-	default:
-		return nil, ErrNotImplemented
 	}
+	rv := reflect.ValueOf(params)
+	for rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return expr.Scope{}, nil
+		}
+		rv = rv.Elem()
+	}
+	if rv.Kind() == reflect.Struct {
+		t := rv.Type()
+		scope := make(expr.Scope, t.NumField())
+		for i := 0; i < t.NumField(); i++ {
+			if f := t.Field(i); f.IsExported() {
+				scope[f.Name] = rv.Field(i).Interface()
+			}
+		}
+		return scope, nil
+	}
+	return nil, fmt.Errorf("bisql: cannot use %T as parameters (want map[string]any, expr.Scope, or a struct)", params)
 }

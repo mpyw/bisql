@@ -15,10 +15,13 @@ import (
 	"github.com/mpyw/bisql/pkg/expr"
 )
 
-// Result is the rendered statement.
+// Result is the rendered statement. SQL/Args are the executable placeholder form;
+// SQLWithArgs is the values-embedded form for snapshots/review (never execute it). All
+// three are produced in a single pass.
 type Result struct {
-	SQL  string
-	Args []any
+	SQL         string
+	Args        []any
+	SQLWithArgs string
 }
 
 // DefaultMaxDepth bounds recursive expansion of embedded values and partials, guarding
@@ -36,10 +39,6 @@ type Config struct {
 	Resolve func(name string) (ast.Node, error)
 	// MaxDepth bounds recursive expansion; <= 0 uses DefaultMaxDepth.
 	MaxDepth int
-	// EmbedValues renders bound values inline as SQL literals (via Literal) instead of
-	// placeholders, producing the values-embedded form for snapshots/review. Result.Args is
-	// then empty. Never execute this form.
-	EmbedValues bool
 }
 
 // Render evaluates the tree against the scope, producing the placeholder-form SQL and its
@@ -55,7 +54,6 @@ func Render(n ast.Node, scope expr.Scope, cfg Config) (Result, error) {
 		lit:      cfg.Literal,
 		resolve:  cfg.Resolve,
 		maxDepth: maxDepth,
-		embed:    cfg.EmbedValues,
 		active:   map[string]bool{},
 	}
 	st := newState(scope)
@@ -63,7 +61,7 @@ func Render(n ast.Node, scope expr.Scope, cfg Config) (Result, error) {
 		return Result{}, err
 	}
 	st.flushBlanks()
-	return Result{SQL: st.buf.String(), Args: st.args}, nil
+	return Result{SQL: st.sql.String(), Args: st.args, SQLWithArgs: st.lit.String()}, nil
 }
 
 type renderer struct {
@@ -72,7 +70,6 @@ type renderer struct {
 	lit      dialect.Literal
 	resolve  func(name string) (ast.Node, error)
 	maxDepth int
-	embed    bool
 
 	// recursion tracking for embedded values and partials
 	depth  int
@@ -91,12 +88,14 @@ func (r *renderer) expand(s *state, sub ast.Node) error {
 	return r.visit(s, sub)
 }
 
-// state accumulates rendered SQL and args for one scope. available reports whether real
-// SQL body (a Word or Other token, a Paren, or a non-empty embedded value) has been
-// emitted; blank nodes are buffered until the next real output so they can be dropped or
-// normalized (see flushBlanks).
+// state accumulates rendered SQL for one scope. Two buffers are built in parallel: sql
+// holds the executable placeholder form, lit the values-embedded form; they diverge only
+// at bound values. available reports whether real SQL body (a Word or Other token, a
+// Paren, or a non-empty embedded value) has been emitted; blank nodes are buffered until
+// the next real output so they can be dropped or normalized (see flushBlanks).
 type state struct {
-	buf       strings.Builder
+	sql       strings.Builder
+	lit       strings.Builder
 	args      []any
 	scope     expr.Scope
 	available bool
@@ -116,16 +115,18 @@ func (s *state) child() *state { return newState(s.scope) }
 
 func (s *state) appendString(str string) {
 	s.flushBlanks()
-	s.buf.WriteString(str)
+	s.sql.WriteString(str)
+	s.lit.WriteString(str)
 }
 
 func (s *state) appendBlank(tok string) { s.blanks = append(s.blanks, tok) }
 
-// appendState flushes both buffers and merges the child's buffer and args into s.
+// appendState flushes both states' blanks and merges the child's buffers and args into s.
 func (s *state) appendState(c *state) {
 	s.flushBlanks()
 	c.flushBlanks()
-	s.buf.WriteString(c.buf.String())
+	s.sql.WriteString(c.sql.String())
+	s.lit.WriteString(c.lit.String())
 	s.args = append(s.args, c.args...)
 }
 
@@ -147,7 +148,8 @@ func (s *state) flushBlanks() {
 		blanks = blanks[lastEol:]
 	}
 	for _, b := range blanks {
-		s.buf.WriteString(b)
+		s.sql.WriteString(b)
+		s.lit.WriteString(b)
 	}
 	s.blanks = nil
 }
@@ -160,7 +162,9 @@ var clauseRe = regexp.MustCompile(`(?i)^(select|from|where|group by|having|order
 
 func (s *state) startsWithClause() bool {
 	s.flushBlanks()
-	return clauseRe.MatchString(strings.TrimSpace(s.buf.String()))
+	// The two buffers differ only at bound values, which never begin a clause, so either
+	// works for clause-keyword detection.
+	return clauseRe.MatchString(strings.TrimSpace(s.sql.String()))
 }
 
 func (r *renderer) visit(s *state, n ast.Node) error {
@@ -297,21 +301,19 @@ func (r *renderer) eval(exprStr string, s *state) (any, error) {
 	return v, nil
 }
 
-// bindOne emits a single bound value: a placeholder (collecting the value into args) in the
-// normal mode, or an inline SQL literal in the values-embedded mode.
-func (r *renderer) bindOne(s *state, v any) error {
-	if r.embed {
-		lit, err := r.lit(v)
-		if err != nil {
-			return fmt.Errorf("bisql/render: embedding value: %w", err)
-		}
-		s.appendString(lit)
-		return nil
-	}
+// bindOne emits one bound value into both buffers: a placeholder into the executable sql
+// buffer (collecting the value into args), and an inline SQL literal into the lit buffer.
+// A literal-formatting failure only affects the review form, so it falls back to %v rather
+// than failing the render.
+func (r *renderer) bindOne(s *state, v any) {
 	s.flushBlanks()
-	s.buf.WriteString(r.ph(len(s.args)+1, ""))
+	s.sql.WriteString(r.ph(len(s.args)+1, ""))
 	s.args = append(s.args, v)
-	return nil
+	litStr, err := r.lit(v)
+	if err != nil {
+		litStr = fmt.Sprintf("%v", v)
+	}
+	s.lit.WriteString(litStr)
 }
 
 func (r *renderer) visitBind(s *state, node ast.BindValue) error {
@@ -334,20 +336,16 @@ func (r *renderer) visitBind(s *state, node ast.BindValue) error {
 					if j > 0 {
 						s.appendString(", ")
 					}
-					if err := r.bindOne(s, te); err != nil {
-						return err
-					}
+					r.bindOne(s, te)
 				}
 				s.appendString(")")
 			} else {
-				if err := r.bindOne(s, e); err != nil {
-					return err
-				}
+				r.bindOne(s, e)
 			}
 		}
 		s.appendString(")")
-	} else if err := r.bindOne(s, v); err != nil {
-		return err
+	} else {
+		r.bindOne(s, v)
 	}
 	// Trailing nodes (whatever followed the test literal) render after the placeholder.
 	for _, c := range node.Trailing {
