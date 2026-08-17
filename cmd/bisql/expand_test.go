@@ -20,14 +20,21 @@ func writeTree(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 const (
 	tmplSearch   = "select emp_no from employees where 1 = 1\n/*%! @include employees/_active.sql */"
 	fragActive   = "/*%if activeOnly*/and retired = /*zero*/0/*%end*/"
 	expandSearch = "select emp_no from employees where 1 = 1\n/*%if activeOnly*/and retired = /*zero*/0/*%end*/"
 )
 
-// fixture writes a root with a template and its fragment, and returns the root and the
-// template's path.
 func fixture(t *testing.T) (root, tmpl string) {
 	t.Helper()
 	root = t.TempDir()
@@ -38,11 +45,13 @@ func fixture(t *testing.T) (root, tmpl string) {
 	return root, filepath.Join(root, "employees/search.sql")
 }
 
-func TestExpand_Stdin(t *testing.T) {
+// --- filter mode ---
+
+func TestFilter_Stdin(t *testing.T) {
 	root, _ := fixture(t)
 	in := strings.NewReader("x /*%! @include employees/_active.sql */")
-	var out strings.Builder
-	if err := runExpand(expandOptions{root: root}, in, &out); err != nil {
+	var out, errBuf strings.Builder
+	if err := runExpand(expandOptions{root: root}, in, &out, &errBuf); err != nil {
 		t.Fatalf("runExpand: %v", err)
 	}
 	if want := "x " + fragActive; out.String() != want {
@@ -50,10 +59,10 @@ func TestExpand_Stdin(t *testing.T) {
 	}
 }
 
-func TestExpand_FileToStdout(t *testing.T) {
+func TestFilter_FileToStdout(t *testing.T) {
 	root, tmpl := fixture(t)
-	var out strings.Builder
-	if err := runExpand(expandOptions{root: root, input: tmpl}, nil, &out); err != nil {
+	var out, errBuf strings.Builder
+	if err := runExpand(expandOptions{root: root, inputs: []string{tmpl}}, nil, &out, &errBuf); err != nil {
 		t.Fatalf("runExpand: %v", err)
 	}
 	if out.String() != expandSearch {
@@ -61,51 +70,81 @@ func TestExpand_FileToStdout(t *testing.T) {
 	}
 }
 
-func TestExpand_OutputFileCreatesParents(t *testing.T) {
+func TestFilter_OutputFileCreatesParents(t *testing.T) {
 	root, tmpl := fixture(t)
-	outPath := filepath.Join(root, "gen", "search.sql") // gen/ does not exist yet
-	var out strings.Builder
-	if err := runExpand(expandOptions{root: root, input: tmpl, output: outPath}, nil, &out); err != nil {
+	outPath := filepath.Join(root, "gen", "search.sql")
+	var out, errBuf strings.Builder
+	if err := runExpand(expandOptions{root: root, inputs: []string{tmpl}, output: outPath}, nil, &out, &errBuf); err != nil {
 		t.Fatalf("runExpand: %v", err)
 	}
 	if out.Len() != 0 {
 		t.Errorf("stdout should be empty with -o, got %q", out.String())
 	}
-	b, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(b) != expandSearch {
-		t.Errorf("file = %q", b)
+	if got := readFile(t, outPath); got != expandSearch {
+		t.Errorf("file = %q", got)
 	}
 }
 
-func TestExpand_Check(t *testing.T) {
+func TestFilter_Check(t *testing.T) {
 	root, tmpl := fixture(t)
 	genPath := filepath.Join(root, "gen.sql")
-	var out strings.Builder
+	var out, errBuf strings.Builder
 
 	// Absent target -> out of date.
-	if err := runExpand(expandOptions{root: root, input: tmpl, check: genPath}, nil, &out); err == nil {
+	if err := runExpand(expandOptions{root: root, inputs: []string{tmpl}, output: genPath, check: true}, nil, &out, &errBuf); err == nil {
 		t.Error("check should fail when the target does not exist")
 	}
-
 	// Materialize, then check passes.
-	if err := runExpand(expandOptions{root: root, input: tmpl, output: genPath}, nil, &out); err != nil {
+	if err := runExpand(expandOptions{root: root, inputs: []string{tmpl}, output: genPath}, nil, &out, &errBuf); err != nil {
 		t.Fatal(err)
 	}
-	if err := runExpand(expandOptions{root: root, input: tmpl, check: genPath}, nil, &out); err != nil {
+	if err := runExpand(expandOptions{root: root, inputs: []string{tmpl}, output: genPath, check: true}, nil, &out, &errBuf); err != nil {
 		t.Errorf("check should pass after -o, got %v", err)
 	}
+}
 
-	// Drift the target -> out of date.
-	if err := os.WriteFile(genPath, []byte("stale"), 0o644); err != nil {
-		t.Fatal(err)
+// --- tree mode ---
+
+func TestTree_MirrorsRoot(t *testing.T) {
+	root, _ := fixture(t)
+	writeTree(t, root, map[string]string{"employees/list.sql": "select 1 /*%! @include employees/_active.sql */"})
+	outDir := filepath.Join(t.TempDir(), "gen")
+
+	var out, errBuf strings.Builder
+	if err := runExpand(expandOptions{root: root, outDir: outDir}, nil, &out, &errBuf); err != nil {
+		t.Fatalf("runExpand: %v (%s)", err, errBuf.String())
 	}
-	if err := runExpand(expandOptions{root: root, input: tmpl, check: genPath}, nil, &out); err == nil {
-		t.Error("check should fail on drift")
+	// Every *.sql is mirrored, including the fragment (expanded to itself).
+	if got := readFile(t, filepath.Join(outDir, "employees/search.sql")); got != expandSearch {
+		t.Errorf("mirrored search = %q", got)
+	}
+	if got := readFile(t, filepath.Join(outDir, "employees/list.sql")); got != "select 1 "+fragActive {
+		t.Errorf("mirrored list = %q", got)
+	}
+	if got := readFile(t, filepath.Join(outDir, "employees/_active.sql")); got != fragActive {
+		t.Errorf("mirrored fragment = %q", got)
 	}
 }
+
+func TestTree_Check(t *testing.T) {
+	root, _ := fixture(t)
+	outDir := filepath.Join(t.TempDir(), "gen")
+	var out, errBuf strings.Builder
+
+	// Nothing generated yet -> drift.
+	if err := runExpand(expandOptions{root: root, outDir: outDir, check: true}, nil, &out, &errBuf); err == nil {
+		t.Error("check should fail before the tree is generated")
+	}
+	// Generate, then check passes.
+	if err := runExpand(expandOptions{root: root, outDir: outDir}, nil, &out, &errBuf); err != nil {
+		t.Fatal(err)
+	}
+	if err := runExpand(expandOptions{root: root, outDir: outDir, check: true}, nil, &out, &errBuf); err != nil {
+		t.Errorf("check should pass after generation, got %v", err)
+	}
+}
+
+// --- errors ---
 
 func TestExpand_Errors(t *testing.T) {
 	root, tmpl := fixture(t)
@@ -115,14 +154,18 @@ func TestExpand_Errors(t *testing.T) {
 		name string
 		opts expandOptions
 	}{
-		{"o and check", expandOptions{root: root, input: tmpl, output: "a", check: "b"}},
-		{"missing input file", expandOptions{root: root, input: filepath.Join(root, "nope.sql")}},
-		{"missing include", expandOptions{root: root, input: filepath.Join(root, "broken.sql")}},
+		{"o and out-dir", expandOptions{root: root, output: "a", outDir: "b"}},
+		{"filter two inputs", expandOptions{root: root, inputs: []string{"a.sql", "b.sql"}}},
+		{"filter check without -o", expandOptions{root: root, inputs: []string{tmpl}, check: true}},
+		{"tree with file arg", expandOptions{root: root, inputs: []string{tmpl}, outDir: "gen"}},
+		{"missing input file", expandOptions{root: root, inputs: []string{filepath.Join(root, "nope.sql")}}},
+		{"missing include", expandOptions{root: root, inputs: []string{filepath.Join(root, "broken.sql")}}},
+		{"tree missing include", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen")}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var out strings.Builder
-			if err := runExpand(c.opts, strings.NewReader("x"), &out); err == nil {
+			var out, errBuf strings.Builder
+			if err := runExpand(c.opts, strings.NewReader("x"), &out, &errBuf); err == nil {
 				t.Errorf("expected an error (out=%q)", out.String())
 			}
 		})

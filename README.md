@@ -486,10 +486,11 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
 ```
 
-The same step is available from the command line as `bisql expand`, a one-in/one-out filter.
-It reads one template (a file, or stdin) and writes the expanded SQL to stdout or a file.
-`@include` names resolve under `--root`, exactly as the library's `FSLoader` resolves them, so
-the output matches what the application sees.
+The same step is available from the command line as `bisql expand`. `@include` names resolve
+under `--root`, exactly as the library's `FSLoader` resolves them, so the output matches what
+the application sees. It has two modes.
+
+**Filter mode** — one template in, one result out:
 
 ```sh
 # to stdout
@@ -498,22 +499,30 @@ bisql expand -root sql sql/employees/search.sql
 # to a file (parent directories are created)
 bisql expand -root sql -o gen/search.sql sql/employees/search.sql
 
-# verify a committed copy is current (writes nothing; non-zero exit on drift)
-bisql expand -root sql --check gen/search.sql sql/employees/search.sql
-
-# as a filter
+# as a plain filter
 cat sql/employees/search.sql | bisql expand -root sql
+
+# verify a committed copy is current (writes nothing; non-zero exit on drift)
+bisql expand -root sql -o gen/search.sql --check sql/employees/search.sql
 ```
 
-There is no batch mode by design: to expand many templates, drive it from the shell or from
-one `go generate` directive per target, which keeps the semantics unambiguous.
+**Tree mode** (`--out-dir`) — expand every `*.sql` under `--root` in a single process and
+mirror the results into the output directory, preserving relative paths. Use this from
+`go generate` so a whole directory costs one process, not one per file:
+
+```sh
+bisql expand -root sql --out-dir gen           # generate gen/ from sql/
+bisql expand -root sql --out-dir gen --check   # verify gen/ (non-zero exit on drift)
+```
 
 ```go
-//go:generate bisql expand -root sql -o gen/search.sql sql/employees/search.sql
+//go:generate bisql expand -root sql --out-dir gen
 ```
 
-The command lives in its own module so the library keeps its single dependency; install it
-with `go install github.com/mpyw/bisql/cmd/bisql@latest`.
+Files without an `@include` are mirrored unchanged, so `gen/` is `sql/` with every include
+resolved. `-o` (a single file) and `--out-dir` (a tree) are mutually exclusive; `--check`
+writes nothing in either mode. The command lives in its own module, so the library keeps its
+single dependency; install it with `go install github.com/mpyw/bisql/cmd/bisql@latest`.
 
 ## Authoring rules
 
