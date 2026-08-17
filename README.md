@@ -501,9 +501,6 @@ bisql expand -root sql -o gen/search.sql sql/employees/search.sql
 
 # as a plain filter
 cat sql/employees/search.sql | bisql expand -root sql
-
-# verify a committed copy is current (writes nothing; non-zero exit on drift)
-bisql expand -root sql -o gen/search.sql --check sql/employees/search.sql
 ```
 
 **Tree mode** (`--out-dir`) — expand every `*.sql` under `--root` in a single process and
@@ -511,8 +508,7 @@ mirror the results into the output directory, preserving relative paths. Use thi
 `go generate` so a whole directory costs one process, not one per file:
 
 ```sh
-bisql expand -root sql --out-dir gen           # generate gen/ from sql/
-bisql expand -root sql --out-dir gen --check   # verify gen/ (non-zero exit on drift)
+bisql expand -root sql --out-dir gen
 ```
 
 ```go
@@ -520,9 +516,18 @@ bisql expand -root sql --out-dir gen --check   # verify gen/ (non-zero exit on d
 ```
 
 Files without an `@include` are mirrored unchanged, so `gen/` is `sql/` with every include
-resolved. `-o` (a single file) and `--out-dir` (a tree) are mutually exclusive; `--check`
-writes nothing in either mode. The command lives in its own module, so the library keeps its
-single dependency; install it with `go install github.com/mpyw/bisql/cmd/bisql@latest`.
+resolved. `-o` (a single file) and `--out-dir` (a tree) are mutually exclusive.
+
+Expansion fails (non-zero exit) if any `@include` cannot be resolved, so a plain run already
+validates the templates — there is no separate check flag. To gate CI on the committed output,
+regenerate and let git detect drift:
+
+```sh
+bisql expand -root sql --out-dir gen && git diff --exit-code gen
+```
+
+The command lives in its own module, so the library keeps its single dependency; install it
+with `go install github.com/mpyw/bisql/cmd/bisql@latest`.
 
 ## Authoring rules
 
