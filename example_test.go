@@ -2,6 +2,7 @@ package bisql_test
 
 import (
 	"fmt"
+	"testing/fstest"
 
 	"github.com/mpyw/bisql"
 	"github.com/mpyw/bisql/dialect"
@@ -70,4 +71,88 @@ func Example_include() {
 	// Output:
 	// select emp_no from employees where retired = ? 1 = 1
 	// [0]
+}
+
+// The /*^ */ literal directive inlines a formatted value instead of binding it — for trusted
+// values that cannot be parameterized (review output, DDL). It is injection-prone.
+func Example_literal() {
+	tmpl, _ := bisql.Parse("select * from t limit /*^n*/10")
+	stmt, _ := tmpl.Build(map[string]any{"n": 50})
+	fmt.Println(stmt.SQL)
+	fmt.Println(stmt.Args)
+	// Output:
+	// select * from t limit 50
+	// []
+}
+
+// A /*%for*/ loop with a ': sep' clause emits the separator between iterations only, keeping
+// a multi-row VALUES list two-way.
+func Example_forLoop() {
+	tmpl, _ := bisql.Parse(
+		"insert into t (a) values /*%for x in xs : ', '*/(/*x*/0)/*%end*/",
+		bisql.WithDialect(dialect.PostgreSQL),
+	)
+	stmt, _ := tmpl.Build(map[string]any{"xs": []any{1, 2, 3}})
+	fmt.Println(stmt.SQL)
+	fmt.Println(stmt.Args)
+	// Output:
+	// insert into t (a) values ($1), ($2), ($3)
+	// [1 2 3]
+}
+
+// Struct parameters expose exported fields by name; an embedded struct's fields are promoted
+// (TenantID) and also reachable qualified (Base.TenantID).
+func Example_structParams() {
+	type Base struct{ TenantID int }
+	type Query struct {
+		Base
+		Name string
+	}
+	tmpl, _ := bisql.Parse("where tenant = /*TenantID*/0 and shard = /*Base.TenantID*/0 and name = /*Name*/'x'")
+	stmt, _ := tmpl.Build(Query{Base: Base{TenantID: 7}, Name: "SCOTT"})
+	fmt.Println(stmt.SQL)
+	fmt.Println(stmt.Args)
+	// Output:
+	// where tenant = ? and shard = ? and name = ?
+	// [7 7 SCOTT]
+}
+
+// A StackedLoader tries its loaders in order, falling through when one reports the fragment is
+// not found. Here the (empty) override has no "f", so the base registry supplies it.
+func Example_stackedLoader() {
+	override := bisql.NewRegistry()
+	base := bisql.NewRegistry().Register("f", "and base = 1")
+	tmpl, _ := bisql.Parse("where 1 = 1 /*%! @include f */", bisql.WithStackedLoader(override, base))
+	stmt, _ := tmpl.Build(nil)
+	fmt.Println(stmt.SQL)
+	// Output:
+	// where 1 = 1 and base = 1
+}
+
+// ExpandFile resolves @include from an fs.FS and returns the expanded, still-two-way text —
+// useful for snapshots or EXPLAIN. Fragments resolve from the same fs.FS.
+func Example_expandFile() {
+	fsys := fstest.MapFS{
+		"q.sql":  {Data: []byte("select 1 /*%! @include _f.sql */ from t")},
+		"_f.sql": {Data: []byte("where 2 = 2")},
+	}
+	expanded, _ := bisql.ExpandFile(fsys, "q.sql")
+	fmt.Println(expanded)
+	// Output:
+	// select 1 where 2 = 2 from t
+}
+
+// SQLWithArgs returns the values-embedded form, for review and snapshots only — never execute
+// it. It is computed on demand from Args.
+func ExampleStatement_sqlWithArgs() {
+	tmpl, _ := bisql.Parse(
+		"where name = /*name*/'x' and age >= /*age*/0",
+		bisql.WithDialect(dialect.PostgreSQL),
+	)
+	stmt, _ := tmpl.Build(map[string]any{"name": "SCOTT", "age": 20})
+	fmt.Println(stmt.SQL)           // execute this
+	fmt.Println(stmt.SQLWithArgs()) // review only; never execute
+	// Output:
+	// where name = $1 and age >= $2
+	// where name = 'SCOTT' and age >= 20
 }
