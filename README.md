@@ -486,29 +486,30 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
 ```
 
-The same step is available from the command line as `bisql expand`, which is convenient for
-committing expanded snapshots and for `go generate`. Input paths and `@include` names resolve
-under `-root`:
+The same step is available from the command line as `bisql expand`, a one-in/one-out filter.
+It reads one template (a file, or stdin) and writes the expanded SQL to stdout or a file.
+`@include` names resolve under `--root`, exactly as the library's `FSLoader` resolves them, so
+the output matches what the application sees.
 
 ```sh
-# one file to stdout
-bisql expand -root sql employees/search.sql
+# to stdout
+bisql expand -root sql sql/employees/search.sql
 
-# a whole tree, mirrored into another directory
-bisql expand -root sql -o generated sql
+# to a file (parent directories are created)
+bisql expand -root sql -o gen/search.sql sql/employees/search.sql
 
-# rewrite each file in place, and verify in CI that they are up to date
-bisql expand -root sql -w sql
-bisql expand -root sql --check sql   # exits non-zero on drift
+# verify a committed copy is current (writes nothing; non-zero exit on drift)
+bisql expand -root sql --check gen/search.sql sql/employees/search.sql
+
+# as a filter
+cat sql/employees/search.sql | bisql expand -root sql
 ```
 
-Inputs may be files, globs, directories (walked recursively for `*.sql`), or `-` for stdin.
-Output goes to stdout (single input), a file (`-o file`), a mirrored directory (`-o dir`), or
-back to each input (`-w`); `--check` writes nothing and fails on drift. A typical generator
-directive is:
+There is no batch mode by design: to expand many templates, drive it from the shell or from
+one `go generate` directive per target, which keeps the semantics unambiguous.
 
 ```go
-//go:generate bisql expand -root sql -w sql
+//go:generate bisql expand -root sql -o gen/search.sql sql/employees/search.sql
 ```
 
 The command lives in its own module so the library keeps its single dependency; install it

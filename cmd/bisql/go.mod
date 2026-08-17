@@ -1,3 +1,4 @@
+
 module github.com/mpyw/bisql/cmd/bisql
 
 go 1.25.0

@@ -10,7 +10,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 
@@ -26,18 +25,7 @@ func main() {
 		},
 	}
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		// A quiet-exit error carries its own already-printed diagnostics (e.g. --check drift);
-		// anything else is reported here.
-		var quiet quietExit
-		if !errors.As(err, &quiet) {
-			fmt.Fprintln(os.Stderr, "bisql:", err)
-		}
+		fmt.Fprintln(os.Stderr, "bisql:", err)
 		os.Exit(1)
 	}
 }
-
-// quietExit signals a non-zero exit whose message has already been written to the command's
-// error stream, so main should not print it again.
-type quietExit struct{}
-
-func (quietExit) Error() string { return "exit status 1" }
