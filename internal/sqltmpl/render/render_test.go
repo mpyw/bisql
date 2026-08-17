@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/mpyw/bisql/expr"
@@ -153,7 +154,7 @@ func TestRender_ForRestoresScope(t *testing.T) {
 	// A caller key named i is shadowed by the loop variable during the loop and restored after.
 	n, _ := parser.Parse("/*%for i in xs*/z/*%end*/[/*^i*/'x']")
 	res, err := render.Render(n, expr.Scope{"xs": []any{1, 2}, "i": "KEEP"},
-		render.Config{Evaluator: keyEval{}, Placeholder: qmark, Literal: litFn})
+		render.Config{Evaluator: stubEval{}, Placeholder: qmark, Literal: litFn})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +163,129 @@ func TestRender_ForRestoresScope(t *testing.T) {
 	}
 }
 
-// keyEval resolves an expression as a scope key.
-type keyEval struct{}
+// for deletes a loop variable that had no pre-existing scope entry, so a later reference to
+// that key resolves to nil again (here rendered as the litFn(nil) form).
+func TestRender_ForDeletesScopeWhenAbsent(t *testing.T) {
+	// No pre-existing i in scope: after the loop the key must be absent, not lingering as its
+	// last iteration value, so the trailing /*^i*/ literal sees nil -> "null".
+	res := renderTmpl(t, "/*%for i in xs*/z/*%end*/[/*^i*/'?']", expr.Scope{"xs": []any{1, 2}}, qmark)
+	if res.SQL != "zz[null]" {
+		t.Errorf("got %q, want %q (i absent after loop)", res.SQL, "zz[null]")
+	}
+}
 
-func (keyEval) Eval(e string, s expr.Scope) (any, error) { return s[e], nil }
+// The placeholder counter stays gap-free even when an /*%if*/ branch that contains a bind is
+// not taken: skipped binds must not consume a number.
+func TestRender_PlaceholderCounterGapFreeAcrossUnreachedIf(t *testing.T) {
+	tmpl := "select /*a*/0 /*%if flag*/, /*b*/0/*%end*/, /*c*/0"
+	// flag=false: the /*b*/ bind is never reached, so a->$1 and c->$2 with no gap.
+	res := renderTmpl(t, tmpl, expr.Scope{"a": 1, "c": 3, "flag": false}, dollar)
+	if res.SQL != "select $1 , $2" || len(res.Args) != 2 {
+		t.Errorf("false: SQL=%q Args=%#v", res.SQL, res.Args)
+	}
+	if !reflect.DeepEqual(res.Args, []any{1, 3}) {
+		t.Errorf("false: Args=%#v", res.Args)
+	}
+	// flag=true: all three binds are reached, numbered contiguously.
+	res = renderTmpl(t, tmpl, expr.Scope{"a": 1, "b": 2, "c": 3, "flag": true}, dollar)
+	if res.SQL != "select $1 , $2, $3" || !reflect.DeepEqual(res.Args, []any{1, 2, 3}) {
+		t.Errorf("true: SQL=%q Args=%#v", res.SQL, res.Args)
+	}
+}
+
+// Binds inside a /*%for*/ body are numbered across iterations, with the separator between them.
+func TestRender_BindInsideForWithSeparator(t *testing.T) {
+	res := renderTmpl(t, "/*%for i in xs : ', '*/(/*i*/0)/*%end*/", expr.Scope{"xs": []any{1, 2, 3}}, dollar)
+	if res.SQL != "($1), ($2), ($3)" || !reflect.DeepEqual(res.Args, []any{1, 2, 3}) {
+		t.Errorf("SQL=%q Args=%#v", res.SQL, res.Args)
+	}
+}
+
+// /*%if*/ /*%elseif*/ /*%else*/ pick the first truthy branch, falling through to else.
+func TestRender_IfElseifElse(t *testing.T) {
+	tmpl := "/*%if a*/A/*%elseif b*/B/*%else*/C/*%end*/"
+	if res := renderTmpl(t, tmpl, expr.Scope{"a": true, "b": false}, qmark); res.SQL != "A" {
+		t.Errorf("a=true: got %q, want A", res.SQL)
+	}
+	if res := renderTmpl(t, tmpl, expr.Scope{"a": false, "b": true}, qmark); res.SQL != "B" {
+		t.Errorf("a=false,b=true: got %q, want B", res.SQL)
+	}
+	if res := renderTmpl(t, tmpl, expr.Scope{"a": false, "b": false}, qmark); res.SQL != "C" {
+		t.Errorf("both false: got %q, want C", res.SQL)
+	}
+}
+
+// A scalar value under a paren test expands to a single-element list, not a scalar bind.
+func TestRender_ScalarUnderParenTest(t *testing.T) {
+	res := renderTmpl(t, "id in /*x*/(0)", expr.Scope{"x": 5}, qmark)
+	if res.SQL != "id in (?)" || !reflect.DeepEqual(res.Args, []any{5}) {
+		t.Errorf("SQL=%q Args=%#v", res.SQL, res.Args)
+	}
+}
+
+// Trailing content after the test literal is rendered verbatim after the placeholder/literal.
+func TestRender_TrailingAfterTestLiteral(t *testing.T) {
+	// bind: the ::int cast trails the placeholder.
+	res := renderTmpl(t, "/*x*/0::int", expr.Scope{"x": 7}, dollar)
+	if res.SQL != "$1::int" || !reflect.DeepEqual(res.Args, []any{7}) {
+		t.Errorf("bind: SQL=%q Args=%#v", res.SQL, res.Args)
+	}
+	// literal: the ::text cast trails the inlined literal.
+	res = renderTmpl(t, "/*^v*/'x'::text", expr.Scope{"v": 42}, qmark)
+	if res.SQL != "42::text" || len(res.Args) != 0 {
+		t.Errorf("literal: SQL=%q Args=%#v", res.SQL, res.Args)
+	}
+}
+
+// evalErr fails on every Eval, standing in for an expression-language error.
+type evalErr struct{}
+
+func (evalErr) Eval(string, expr.Scope) (any, error) { return nil, fmt.Errorf("boom") }
+
+// An evaluator error surfaces from Render wrapped with the "evaluating" context.
+func TestRender_EvaluatorErrorPropagates(t *testing.T) {
+	n, err := parser.Parse("a = /*x*/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = render.Render(n, expr.Scope{}, render.Config{Evaluator: evalErr{}, Placeholder: qmark, Literal: litFn})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "evaluating") {
+		t.Errorf("error %q does not mention evaluating", err)
+	}
+}
+
+// A literal-formatter error surfaces from Render wrapped with the "literal" context.
+func TestRender_LiteralFormatterErrorWraps(t *testing.T) {
+	litErr := func(any) (string, error) { return "", fmt.Errorf("bad value") }
+	n, err := parser.Parse("/*^v*/'x'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = render.Render(n, expr.Scope{"v": 42}, render.Config{Evaluator: stubEval{}, Placeholder: qmark, Literal: litErr})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "literal") {
+		t.Errorf("error %q does not mention literal", err)
+	}
+}
+
+// ArgSpans point at the exact placeholder bytes for each arg, aligned with Args.
+func TestRender_ArgSpansAlignWithArgs(t *testing.T) {
+	res := renderTmpl(t, "a = /*x*/0 and b = /*y*/0", expr.Scope{"x": 1, "y": 2}, dollar)
+	if res.SQL != "a = $1 and b = $2" || !reflect.DeepEqual(res.Args, []any{1, 2}) {
+		t.Fatalf("SQL=%q Args=%#v", res.SQL, res.Args)
+	}
+	want := [][2]int{{4, 6}, {15, 17}}
+	if !reflect.DeepEqual(res.ArgSpans, want) {
+		t.Fatalf("ArgSpans=%#v want %#v", res.ArgSpans, want)
+	}
+	for i, sp := range res.ArgSpans {
+		if got := res.SQL[sp[0]:sp[1]]; got != "$"+strconv.Itoa(i+1) {
+			t.Errorf("span %d yields %q", i, got)
+		}
+	}
+}

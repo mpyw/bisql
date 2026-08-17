@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
@@ -89,7 +90,10 @@ func TestParse_Structure(t *testing.T) {
 
 // A bind's paren test literal parses as a Paren (this drives IN-list expansion at render).
 func TestParse_ParenTest(t *testing.T) {
-	n, _ := parser.Parse("id in /*ids*/(1, 2)")
+	n, err := parser.Parse("id in /*ids*/(1, 2)")
+	if err != nil {
+		t.Fatal(err)
+	}
 	st := n.(ast.Statement)
 	for _, c := range st.Nodes {
 		if b, ok := c.(ast.BindValue); ok {
@@ -100,6 +104,136 @@ func TestParse_ParenTest(t *testing.T) {
 		}
 	}
 	t.Fatal("no BindValue found")
+}
+
+// TestParse_ForSeparatorStructure asserts the *interpretation* of the /*%for*/ separator by
+// reaching into ast.ForBlock.For (Identifier / Expression / Separator). The lossless
+// round-trip cannot cover this: ForDirective.Text() re-emits the raw token verbatim, so a
+// parse-and-Text() check never reads back the split identifier / iterable / separator.
+func TestParse_ForSeparatorStructure(t *testing.T) {
+	cases := []struct {
+		name     string
+		src      string
+		wantID   string
+		wantExpr string
+		wantSep  string
+	}{
+		{"no separator", "/*%for x in xs*/y/*%end*/", "x", "xs", ""},
+		{"single-quoted", "/*%for x in xs : ', '*/y/*%end*/", "x", "xs", ", "},
+		{"double-quoted", `/*%for x in xs : ", "*/y/*%end*/`, "x", "xs", ", "},
+		{"doubled-quote escape", "/*%for x in xs : ''''*/y/*%end*/", "x", "xs", "'"},
+		{"doubled-quote escape twice", "/*%for x in xs : ''''''*/y/*%end*/", "x", "xs", "''"},
+		{"colon inside slice", "/*%for x in xs[1:2]*/y/*%end*/", "x", "xs[1:2]", ""},
+		{"colon inside parens", "/*%for x in f(a : b)*/y/*%end*/", "x", "f(a : b)", ""},
+		{"colon inside braces", "/*%for x in {k: v}*/y/*%end*/", "x", "{k: v}", ""},
+		{"colon inside quoted string", "/*%for x in xs : ':'*/y/*%end*/", "x", "xs", ":"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			n, err := parser.Parse(c.src)
+			if err != nil {
+				t.Fatalf("parser.Parse(%q): %v", c.src, err)
+			}
+			st, ok := n.(ast.Statement)
+			if !ok {
+				t.Fatalf("root is %T, want Statement", n)
+			}
+			var fb *ast.ForBlock
+			for _, node := range st.Nodes {
+				if b, ok := node.(ast.ForBlock); ok {
+					bb := b
+					fb = &bb
+					break
+				}
+			}
+			if fb == nil {
+				t.Fatalf("no ForBlock found in %q", c.src)
+			}
+			if fb.For.Identifier != c.wantID {
+				t.Errorf("For.Identifier = %q, want %q", fb.For.Identifier, c.wantID)
+			}
+			if fb.For.Expression != c.wantExpr {
+				t.Errorf("For.Expression = %q, want %q", fb.For.Expression, c.wantExpr)
+			}
+			if fb.For.Separator != c.wantSep {
+				t.Errorf("For.Separator = %q, want %q", fb.For.Separator, c.wantSep)
+			}
+		})
+	}
+}
+
+// TestParse_BindTrailing asserts the "::cast" fold: content after the bind's test literal
+// folds into BindValue.Trailing (here `1` is the Word test and `::bigint` the trailing).
+func TestParse_BindTrailing(t *testing.T) {
+	n, err := parser.Parse("/*a*/1::bigint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := n.(ast.Statement)
+	if !ok {
+		t.Fatalf("root is %T, want Statement", n)
+	}
+	var bind *ast.BindValue
+	for _, node := range st.Nodes {
+		if b, ok := node.(ast.BindValue); ok {
+			bb := b
+			bind = &bb
+			break
+		}
+	}
+	if bind == nil {
+		t.Fatal("no BindValue found")
+	}
+	w, isWord := bind.Test.(ast.Word)
+	if !isWord {
+		t.Fatalf("bind Test = %T, want Word", bind.Test)
+	}
+	if w.Token != "1" {
+		t.Errorf("bind Test word = %q, want %q", w.Token, "1")
+	}
+	if len(bind.Trailing) == 0 {
+		t.Fatal("bind Trailing is empty, want the ::cast fold")
+	}
+	var trailing strings.Builder
+	for _, tn := range bind.Trailing {
+		trailing.WriteString(tn.Text())
+	}
+	if got := trailing.String(); got != "::bigint" {
+		t.Errorf("bind Trailing text = %q, want %q", got, "::bigint")
+	}
+}
+
+// TestParse_ErrorMessages asserts distinct error messages by substring. Each case is a
+// malformed template whose message pinpoints the specific defect.
+func TestParse_ErrorMessages(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"elseif after else", "/*%if a*/x/*%else*/y/*%elseif b*/z/*%end*/", "an elseif directive appears after else"},
+		{"second else", "/*%if a*/x/*%else*/y/*%else*/z/*%end*/", "a second else directive is found"},
+		{"else without if", "select 1 /*%else*/x/*%end*/", "the corresponding if directive is not found"},
+		{"for without identifier", "/*%for in xs*/y/*%end*/", "the identifier is not found in the for directive"},
+		{"for without iterable", "/*%for x in */y/*%end*/", "the iterable expression is not found in the for directive"},
+		{"for separator unquoted", "/*%for x in xs : bad*/y/*%end*/", "the for separator must be a quoted string literal"},
+		{"for separator trailing junk", "/*%for x in xs : 'a'b*/y/*%end*/", "the for separator must be a quoted string literal"},
+		{"empty literal directive", "/*^ */x", "expression is not found in the literal value directive"},
+		// Asymmetry vs bind: reducer.go accepts a Word OR Paren test for a bind, but a literal
+		// test must be a Word — a Paren is rejected.
+		{"literal test must be a Word not Paren", "/*^x*/(1)", "the test value must follow the literal value directive"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := parser.Parse(c.src)
+			if err == nil {
+				t.Fatalf("parser.Parse(%q): expected error", c.src)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("parser.Parse(%q) error = %q, want substring %q", c.src, err.Error(), c.want)
+			}
+		})
+	}
 }
 
 func TestParse_Errors(t *testing.T) {

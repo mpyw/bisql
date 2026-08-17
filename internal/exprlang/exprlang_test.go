@@ -1,6 +1,8 @@
 package exprlang_test
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/mpyw/bisql/expr"
@@ -134,6 +136,56 @@ func TestEval_optionalChaining(t *testing.T) {
 	}
 }
 
+// TestEval_optionalChainingValue covers the value path of a?.b: on a NON-nil operand the
+// chain resolves the member just like a plain property access (the nil path is covered above).
+func TestEval_optionalChainingValue(t *testing.T) {
+	scope := expr.Scope{
+		"o": outer{Name: "Bob"},
+		"m": map[string]any{"Name": "Kate"},
+	}
+	if v := eval(t, "o?.Name", scope); v != "Bob" {
+		t.Errorf("o?.Name on non-nil struct: %v", v)
+	}
+	if v := eval(t, "m?.Name", scope); v != "Kate" {
+		t.Errorf("m?.Name on non-nil map: %v", v)
+	}
+}
+
+// TestEval_nilCoalescing covers the ?? operator: it yields the right operand when the left is
+// nil, and the left operand otherwise.
+func TestEval_nilCoalescing(t *testing.T) {
+	if v := eval(t, "a ?? 7", expr.Scope{"a": nil}); v != 7 {
+		t.Errorf("a ?? 7 with a=nil: %v", v)
+	}
+	if v := eval(t, "a ?? 7", expr.Scope{"a": 3}); v != 3 {
+		t.Errorf("a ?? 7 with a=3: %v", v)
+	}
+}
+
+// TestEval_nullVsNilFootgun pins the null-vs-nil footgun. expr-lang's null literal is spelled
+// "nil"; a bare "null" is not a literal at all but an undefined variable, which — because of
+// AllowUndefinedVariables — resolves to nil. As a result "name != null" and "name != nil"
+// behave identically across every scope, which is exactly the trap: "null" silently works and
+// so masks the fact that the canonical (and only real) spelling is "nil".
+func TestEval_nullVsNilFootgun(t *testing.T) {
+	scopes := []expr.Scope{
+		{"name": "aaa"},
+		{"name": nil},
+		{}, // absent key
+	}
+	for _, sc := range scopes {
+		gotNull := eval(t, "name != null", sc)
+		gotNil := eval(t, "name != nil", sc)
+		if gotNull != gotNil {
+			t.Errorf("name != null (%v) and name != nil (%v) diverged for scope %v", gotNull, gotNil, sc)
+		}
+	}
+	// "null" is itself just an undefined variable, i.e. nil.
+	if v := eval(t, "null == nil", expr.Scope{}); v != true {
+		t.Errorf("null == nil: %v", v)
+	}
+}
+
 func TestEval_method(t *testing.T) {
 	scope := expr.Scope{"o": outer{Name: "Bob"}}
 	if v := eval(t, `o.Greet("x")`, scope); v != "hi x from Bob" {
@@ -167,5 +219,39 @@ func TestEval_cacheReuse(t *testing.T) {
 		if v != i+1 {
 			t.Errorf("a+1 with a=%d: %v", i, v)
 		}
+	}
+}
+
+// TestEval_concurrentSameExpression backs the "safe for concurrent use" claim: many goroutines
+// hammer one shared Default with the same expression string (so they contend on the compiled-
+// program cache) while each supplies its own scope. Run under -race to exercise the cache; this
+// stays in the external package and never touches unexported cache internals.
+func TestEval_concurrentSameExpression(t *testing.T) {
+	t.Parallel()
+	d := &exprlang.Default{}
+	const goroutines = 32
+	var wg sync.WaitGroup
+	errs := make(chan error, goroutines)
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(base int) {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				v, err := d.Eval("a + 1", expr.Scope{"a": base})
+				if err != nil {
+					errs <- fmt.Errorf("Eval: %w", err)
+					return
+				}
+				if v != base+1 {
+					errs <- fmt.Errorf("a+1 with a=%d: got %v", base, v)
+					return
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }
