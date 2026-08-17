@@ -48,7 +48,12 @@ The `/*%for*/` separator is the one place bisql emits build-time text that is ab
 raw paste. It is not general raw-text emission (the removed `/*# */` embed): it is confined to
 a loop's inter-iteration separator, which is exactly the construct that cannot otherwise be
 made two-way — a list with no anchor position (a multi-row `VALUES` clause) has a separator in
-the built output but must have none when the single raw body is pasted into a client.
+the built output but must have none when the single raw body is pasted into a client. Crucially
+the separator is a **constant string literal parsed at build time, not an expression**: were it
+an evaluated expression, a runtime value could be emitted verbatim, which is precisely the
+raw-text-injection surface the design excludes. It is single- or double-quoted with the quote
+doubled to escape; its introducing colon is the first one not inside quotes, `()`, `[]`, or
+`{}`, so it does not collide with a ternary/slice/map colon in the iterable expression.
 
 Three consequences follow directly from verbatim emission:
 

@@ -177,12 +177,43 @@ func TestForLoop(t *testing.T) {
 			args:   []any{1, 2},
 		},
 		{
+			name:   "double-quoted separator (equivalent to single)",
+			tmpl:   `select /*%for c in cols : ", "*//*c*/0/*%end*/`,
+			params: map[string]any{"cols": []any{1, 2}},
+			sql:    "select ?, ?",
+			args:   []any{1, 2},
+		},
+		{
+			// The separator is a literal, so the colon of an expression construct (here a
+			// slice) is only recognized when not enclosed; xs[0:2] keeps its own colon.
+			name:   "colon inside a slice is not a separator clause",
+			tmpl:   "select /*%for c in cols[0:2] : ', '*//*c*/0/*%end*/",
+			params: map[string]any{"cols": []any{1, 2, 3}},
+			sql:    "select ?, ?",
+			args:   []any{1, 2},
+		},
+		{
 			name:   "empty for renders nothing",
 			tmpl:   "where 1 = 0 /*%for kw in kws : ', '*/or x/*%end*/",
 			params: map[string]any{},
 			sql:    "where 1 = 0 ",
 		},
 	})
+}
+
+// The for separator is a literal, not an expression: a non-literal (a bare identifier or an
+// expression) is a parse error, so a runtime value can never be emitted as raw text.
+func TestForSeparatorMustBeLiteral(t *testing.T) {
+	for _, tmpl := range []string{
+		"/*%for c in cols : sep*//*c*/0/*%end*/",       // bare identifier
+		"/*%for c in cols : ',' + ' '*//*c*/0/*%end*/", // expression
+		"/*%for c in cols : 'unterminated*//*c*/0/*%end*/",
+	} {
+		_, err := bisql.Parse(tmpl)
+		if err == nil || !strings.Contains(err.Error(), "separator must be a quoted string literal") {
+			t.Errorf("Parse(%q): want a separator-literal error, got %v", tmpl, err)
+		}
+	}
 }
 
 func TestComments(t *testing.T) {

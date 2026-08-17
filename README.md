@@ -245,7 +245,8 @@ An optional separator (typically a comma):
 <td>
 
 **Iteration.** Renders the body once for each element of `xs`, bound to `x`. The separator
-clause keeps an anchorless list (a multi-row `VALUES`) two-way.
+clause keeps an anchorless list (a multi-row `VALUES`) two-way. The separator is a **string
+literal** (single- or double-quoted, doubled to escape), not an expression.
 
 ```sql
 insert into t (a) values /*%for x in xs : ', '*/(/*x*/0)/*%end*/
@@ -599,6 +600,14 @@ The null literal is `nil`; the Komapper idiom `x != null` is also accepted, beca
 undefined identifier `null` resolves to nil. A nil or absent `/*%if*/` condition is treated
 as false; a nil or absent `/*%for*/` iterable yields zero iterations. The evaluator is
 replaceable through `WithEvaluator`.
+
+The one part of a directive that is **not** an expression is the `/*%for … : 'sep'*/`
+separator: it is a constant string literal, parsed at build time rather than evaluated. This
+is deliberate — the separator is emitted verbatim between iterations, so permitting a runtime
+value would reintroduce raw-text injection. A separator that is not a quoted literal is a
+parse error. (The colon that introduces the separator is the first one not inside quotes,
+`()`, `[]`, or `{}`, so an iterable expression's own colon — in a ternary `a ? b : c`, a
+slice `x[1:2]`, or a map `{k: v}` — is not mistaken for it.)
 
 ## Package layout
 
