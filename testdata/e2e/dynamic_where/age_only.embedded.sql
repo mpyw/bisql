@@ -1,5 +1,5 @@
-select * from person
+select * from users
 where 1 = 1
 
-and age > 20
+and age > 30
 

@@ -23,7 +23,7 @@ import (
 func FuzzBuild(f *testing.F) {
 	// A fixed loader so the /*%! @include x */ seed (and any @include the fuzzer stumbles onto)
 	// actually resolves, exercising the include path rather than short-circuiting at Parse.
-	loader := bisql.NewRegistry().Register("x", "1 = /*a*/0")
+	loader := bisql.NewRegistryLoader().Register("x", "1 = /*a*/0")
 
 	seeds := []string{
 		"select 1",

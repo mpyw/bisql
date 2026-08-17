@@ -1,7 +1,7 @@
-select emp_no, name
-from employees
+select id, name
+from users
 where 1 = 1
-and retired = 0
-and dept_no = 10
-and name = 'SCOTT'
-order by emp_no
+and status = 'active'
+and department_id = 3
+and name = 'Alice'
+order by id

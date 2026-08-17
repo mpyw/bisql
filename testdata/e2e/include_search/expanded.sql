@@ -1,7 +1,7 @@
-select emp_no, name
-from employees
+select id, name
+from users
 where 1 = 1
-/*%if activeOnly*/and retired = /*zero*/0/*%end*/
-/*%if dept != null*/and dept_no = /*dept*/0/*%end*/
-/*%if name != null*/and name = /*name*/'SCOTT'/*%end*/
-order by emp_no
+/*%if activeOnly*/and status = /*status*/'active'/*%end*/
+/*%if dept != null*/and department_id = /*dept*/0/*%end*/
+/*%if name != null*/and name = /*name*/'Alice'/*%end*/
+order by id

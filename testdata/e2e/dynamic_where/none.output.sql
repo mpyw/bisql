@@ -1,4 +1,4 @@
-select * from person
+select * from users
 where 1 = 1
 
 

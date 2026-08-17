@@ -1,7 +1,7 @@
-select emp_no, name
-from employees
+select id, name
+from users
 where 1 = 1
 
 
 
-order by emp_no
+order by id

@@ -19,24 +19,24 @@ system.
 
 ```text
 sql/
-└── employees/
+└── users/
     ├── search.sql     root template
     └── _active.sql    reusable fragment
 ```
 
 ```sql
--- sql/employees/search.sql
-select emp_no, name
-from employees
+-- sql/users/search.sql
+select id, name
+from users
 where 1 = 1
-/*%if name != null*/and name = /*name*/'SCOTT'/*%end*/
-/*%! @include employees/_active.sql */
-order by emp_no
+/*%if name != null*/and name = /*name*/'Alice'/*%end*/
+/*%! @include users/_active.sql */
+order by id
 ```
 
 ```sql
--- sql/employees/_active.sql
-/*%if activeOnly*/and retired = /*zero*/0/*%end*/
+-- sql/users/_active.sql
+/*%if activeOnly*/and status = /*status*/'active'/*%end*/
 ```
 
 ```go
@@ -60,34 +60,34 @@ func main() {
 	// Configure a Parser once and reuse it for every template.
 	p := bisql.NewParser(bisql.WithDialect(dialect.PostgreSQL))
 
-	tmpl, err := p.ParseFile(sqlFS, "employees/search.sql")
+	tmpl, err := p.ParseFile(sqlFS, "users/search.sql")
 	if err != nil {
 		panic(err)
 	}
 
 	stmt, err := tmpl.Build(map[string]any{
-		"name":       "SCOTT",
+		"name":       "Alice",
 		"activeOnly": true,
-		"zero":       0,
+		"status":     "active",
 	})
 	if err != nil {
 		panic(err)
 	}
 
 	fmt.Println(stmt.SQL)  // parameterized form; execute this
-	fmt.Println(stmt.Args) // []any{"SCOTT", 0}
+	fmt.Println(stmt.Args) // []any{"Alice", "active"}
 }
 ```
 
 The resulting statement is:
 
 ```sql
-select emp_no, name
-from employees
+select id, name
+from users
 where 1 = 1
 and name = $1
-and retired = $2
-order by emp_no
+and status = $2
+order by id
 ```
 
 A `Parser` is immutable and safe for concurrent use, so it is constructed once and reused
@@ -115,16 +115,16 @@ Because every directive is written as a SQL comment, a template is simultaneousl
 statement. Consider the following template:
 
 ```sql
-select emp_no, name from employees
+select id, name from users
 where 1 = 1
-/*%if name != null*/and name = /*name*/'SCOTT'/*%end*/
-order by emp_no
+/*%if name != null*/and name = /*name*/'Alice'/*%end*/
+order by id
 ```
 
 When the text is executed verbatim in a SQL client, `/*%if*/`, `/*%end*/`, and `/*name*/` are
-interpreted as comments, and the trailing literal `'SCOTT'` remains in place; the client
-therefore evaluates `name = 'SCOTT'`. When the same text is processed by bisql, the `/*%if*/`
-condition is evaluated, the fragment `/*name*/'SCOTT'` is replaced by a placeholder, and the
+interpreted as comments, and the trailing literal `'Alice'` remains in place; the client
+therefore evaluates `name = 'Alice'`. When the same text is processed by bisql, the `/*%if*/`
+condition is evaluated, the fragment `/*name*/'Alice'` is replaced by a placeholder, and the
 value is bound as an argument. The two interpretations are designed to remain semantically
 consistent.
 
@@ -165,11 +165,11 @@ These directives are evaluated during rendering and produce the SQL and its argu
 trailing `literal` (the two-way sample value, ignored at build time).
 
 ```sql
-where name = /*name*/'SCOTT'
+where name = /*name*/'Alice'
 
--- name = "SCOTT"
+-- name = "Alice"
 --   →  where name = $1
---      ($1 = "SCOTT")
+--      ($1 = "Alice")
 ```
 
 </td>
@@ -253,10 +253,10 @@ clause keeps an anchorless list (a multi-row `VALUES`) two-way. The separator is
 literal** (single- or double-quoted, doubled to escape), not an expression.
 
 ```sql
-insert into t (a) values /*%for x in xs : ', '*/(/*x*/0)/*%end*/
+insert into audit_logs (user_id) values /*%for id in ids : ', '*/(/*id*/0)/*%end*/
 
--- xs = [1, 2]
---   →  insert into t (a) values ($1), ($2)
+-- ids = [1, 2]
+--   →  insert into audit_logs (user_id) values ($1), ($2)
 --      ($1 = 1, $2 = 2)
 ```
 
@@ -288,8 +288,8 @@ These directives share the `/*%! … */` channel and are resolved before lexing.
 [Fragment inclusion](#fragment-inclusion)).
 
 ```sql
-where 1 = 1 /*%! @include filters/active.sql */
--- → where 1 = 1 <text of filters/active.sql>
+where 1 = 1 /*%! @include users/_active.sql */
+-- → where 1 = 1 <text of users/_active.sql>
 ```
 
 </td>
@@ -307,8 +307,8 @@ where 1 = 1 /*%! @include filters/active.sql */
 **Parser comment.** Removed from the output entirely; carries no SQL.
 
 ```sql
-select 1 /*%! TODO: drop this column */ from t
--- → select 1  from t
+select id /*%! TODO: drop this column */ from users
+-- → select id  from users
 ```
 
 </td>
@@ -329,16 +329,16 @@ is what keeps a list with no anchor position — a multi-row `VALUES` clause, a 
 list — two-way:
 
 ```sql
-insert into audit (emp_no, action)
-values /*%for e in entries : ', '*/
-  (/*e.empNo*/0, /*e.action*/'x')
+insert into audit_logs (user_id, action)
+values /*%for log in logs : ', '*/
+  (/*log.userId*/0, /*log.action*/'view')
 /*%end*/
 ```
 
 | Context               | Result                                     |
 |:----------------------|:-------------------------------------------|
-| Build (two entries)   | `values ($1, $2), ($3, $4)`                |
-| Raw paste in a client | `values (0, 'x')` — a valid single-row `VALUES` |
+| Build (two rows)      | `values ($1, $2), ($3, $4)`                |
+| Raw paste in a client | `values (0, 'view')` — a valid single-row `VALUES` |
 
 The separator value is a single-quoted string literal, with `''` for a literal quote.
 
@@ -371,9 +371,9 @@ where id in /*ids*/(1, 2)
 ```
 
 ```go
-tmpl.Build(map[string]any{"ids": []int{10, 20, 30}})
+tmpl.Build(map[string]any{"ids": []int{1, 2, 3}})
 // SQL:  where id in ($1, $2, $3)
-// Args: []any{10, 20, 30}
+// Args: []any{1, 2, 3}
 ```
 
 An empty slice renders as `(null)`, and a slice of slices renders as row tuples,
@@ -388,9 +388,9 @@ where id = ANY(/*ids*/'{}'::int[])
 ```
 
 ```go
-tmpl.Build(map[string]any{"ids": []int{10, 20, 30}})
+tmpl.Build(map[string]any{"ids": []int{1, 2, 3}})
 // SQL:  where id = ANY($1::int[])
-// Args: []any{[]int{10, 20, 30}}
+// Args: []any{[]int{1, 2, 3}}
 ```
 
 > [!NOTE]
@@ -434,7 +434,7 @@ parsed with a loader.
 
 | Implementation   | Constructor                        | Source                                              |
 |:-----------------|:-----------------------------------|:----------------------------------------------------|
-| `RegistryLoader` | `bisql.NewRegistry()`              | In-memory fragments registered by name.             |
+| `RegistryLoader` | `bisql.NewRegistryLoader()`              | In-memory fragments registered by name.             |
 | `FSLoader`       | `bisql.NewFSLoader(fs.FS)`         | Files in an `fs.FS` (`embed.FS`, `os.DirFS`, …); the `@include` name is the file path from the root of the `fs.FS`. |
 | `LoaderFunc`     | `bisql.LoaderFunc(fn)`             | An adapter over any resolution function.            |
 | `StackedLoader`  | `bisql.NewStackedLoader(…Loader)`  | A chain of loaders tried in order (see below).      |
@@ -452,11 +452,11 @@ tmpl, err := bisql.Parse(rootSrc, bisql.WithLoader(loader))
 Fragments may also be provided in memory rather than as files:
 
 ```go
-loader := bisql.NewRegistry().
-	Register("active_filter", "/*%if activeOnly*/and retired = /*zero*/0/*%end*/")
+loader := bisql.NewRegistryLoader().
+	Register("active_filter", "/*%if activeOnly*/and status = /*status*/'active'/*%end*/")
 
 tmpl, err := bisql.Parse(
-	"select emp_no from employees where 1 = 1 /*%! @include active_filter */",
+	"select id from users where 1 = 1 /*%! @include active_filter */",
 	bisql.WithLoader(loader),
 )
 ```
@@ -487,7 +487,7 @@ result is therefore still a valid two-way template, which is useful for committi
 snapshots and for pre-execution inspection with `EXPLAIN`.
 
 ```go
-expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
+expanded, err := bisql.ExpandFile(sqlFS, "users/search.sql")
 ```
 
 The same step is available on the command line as `bisql expand`, a plain filter: it reads a
@@ -496,8 +496,8 @@ resolve under `--include-root` (`-r`), identically to the library's `FSLoader`, 
 unresolved include exits non-zero, so a run also validates.
 
 ```sh
-bisql expand -r sql < sql/employees/search.sql > gen/search.sql
-cat sql/employees/search.sql | bisql expand -r sql | psql ...
+bisql expand -r sql < sql/users/search.sql > gen/search.sql
+cat sql/users/search.sql | bisql expand -r sql | psql ...
 ```
 
 There is no batch mode: to expand many files, drive it from the shell, or call
@@ -534,29 +534,29 @@ left dangling.
 
 ```sql
 -- WHERE: constant predicate + leading connectors
-select * from employees
+select * from users
 where 1 = 1
-/*%if name != null*/and name = /*name*/'SCOTT'/*%end*/
+/*%if name != null*/and name = /*name*/'Alice'/*%end*/
 /*%if minAge != null*/and age >= /*minAge*/20/*%end*/
 
 -- ORDER BY: trailing stable key
-select * from employees
-order by /*%if byName*/name, /*%end*/emp_no
+select * from users
+order by /*%if byName*/name, /*%end*/id
 
 -- SELECT list: fixed leading column; optional known columns added with a leading comma.
 -- Columns are whitelisted with /*%if*/, never bound.
-select emp_no /*%if withName*/, name/*%end*/ /*%if withDept*/, dept_no/*%end*/
-from employees
+select id /*%if withName*/, name/*%end*/ /*%if withDept*/, department_id/*%end*/
+from users
 
 -- Row list: the : ', ' separator is emitted between iterations only (build-only, two-way).
-insert into audit (emp_no, action)
-values /*%for e in entries : ', '*/(/*e.empNo*/0, /*e.action*/'x')/*%end*/
+insert into audit_logs (user_id, action)
+values /*%for log in logs : ', '*/(/*log.userId*/0, /*log.action*/'view')/*%end*/
 
 -- Empty-safe variant: INSERT ... SELECT anchored by a zero-row select, for a list that may
 -- have no rows (a VALUES list would render an invalid empty `values`).
-insert into audit (emp_no, action)
+insert into audit_logs (user_id, action)
 select 0, '' where 1 = 0
-/*%for e in entries : ' '*/union all select /*e.empNo*/0, /*e.action*/'x'/*%end*/
+/*%for log in logs : ' '*/union all select /*log.userId*/0, /*log.action*/'view'/*%end*/
 ```
 
 > [!IMPORTANT]

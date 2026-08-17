@@ -32,18 +32,18 @@ func writeTree(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-const fragActive = "/*%if activeOnly*/and retired = /*zero*/0/*%end*/"
+const fragActive = "/*%if activeOnly*/and status = /*status*/'active'/*%end*/"
 
 func TestRun_ResolvesInclude(t *testing.T) {
 	root := t.TempDir()
-	writeTree(t, root, map[string]string{"employees/_active.sql": fragActive})
+	writeTree(t, root, map[string]string{"users/_active.sql": fragActive})
 
-	in := strings.NewReader("select emp_no from employees where 1 = 1\n/*%! @include employees/_active.sql */")
+	in := strings.NewReader("select id from users where 1 = 1\n/*%! @include users/_active.sql */")
 	var out strings.Builder
 	if err := expand.Run(root, in, &out); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	want := "select emp_no from employees where 1 = 1\n" + fragActive
+	want := "select id from users where 1 = 1\n" + fragActive
 	if out.String() != want {
 		t.Errorf("out = %q, want %q", out.String(), want)
 	}
