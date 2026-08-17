@@ -612,6 +612,7 @@ Placeholders themselves are generated per dialect and are selected with `WithDia
 | Dialect     | Placeholder form |
 |:------------|:-----------------|
 | MySQL       | `?`              |
+| SQLite      | `?`              |
 | PostgreSQL  | `$1`, `$2`, …    |
 | Oracle      | `:1`, `:2`, …    |
 | SQL Server  | `@p1`, `@p2`, …  |
@@ -644,7 +645,7 @@ bisql            Public API: NewParser, Parser, Parse, ParseFile, Expand, Expand
                  Template, Statement, Option, and fragment loaders (Loader, RegistryLoader,
                  FSLoader, LoaderFunc, StackedLoader, ErrNotFound, WithLoader, WithStackedLoader).
 dialect/         Dialect definitions: placeholder generation and literal formatting
-                 (MySQL, PostgreSQL, Oracle, SQL Server).
+                 (MySQL, SQLite, PostgreSQL, Oracle, SQL Server).
 expr/            Evaluator interface and Scope (for custom evaluators).
 cmd/bisql/       The `bisql` CLI (own module; urfave/cli). Subcommand: expand.
 internal/

@@ -16,6 +16,7 @@ func TestNamesAndPlaceholders(t *testing.T) {
 		ignore bool   // whether index is ignored (MySQL: always "?")
 	}{
 		{dialect.MySQL, "mysql", "?", "?", true},
+		{dialect.SQLite, "sqlite", "?", "?", true},
 		{dialect.PostgreSQL, "postgresql", "$1", "$2", false},
 		{dialect.Oracle, "oracle", ":1", ":2", false},
 		{dialect.SQLServer, "sqlserver", "@p1", "@p2", false},

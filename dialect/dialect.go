@@ -133,6 +133,8 @@ func postgresArrayElem(v any) (string, error) {
 var (
 	// MySQL uses ? placeholders.
 	MySQL = Dialect{name: "mysql", placeholder: func(int, string) string { return "?" }}
+	// SQLite uses ? placeholders (positional), like MySQL.
+	SQLite = Dialect{name: "sqlite", placeholder: func(int, string) string { return "?" }}
 	// PostgreSQL uses $1, $2, ... placeholders and renders array literals as '{...}'.
 	PostgreSQL = Dialect{
 		name:        "postgresql",
