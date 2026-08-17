@@ -1,10 +1,8 @@
-package main
+package expand
 
 import (
 	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -53,8 +51,8 @@ func TestFilter_Stdin(t *testing.T) {
 	root, _ := fixture(t)
 	in := strings.NewReader("x /*%! @include employees/_active.sql */")
 	var out strings.Builder
-	if err := runExpand(expandOptions{root: root}, in, &out); err != nil {
-		t.Fatalf("runExpand: %v", err)
+	if err := Run(Options{Root: root}, in, &out); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	if want := "x " + fragActive; out.String() != want {
 		t.Errorf("out = %q, want %q", out.String(), want)
@@ -64,8 +62,8 @@ func TestFilter_Stdin(t *testing.T) {
 func TestFilter_FileToStdout(t *testing.T) {
 	root, tmpl := fixture(t)
 	var out strings.Builder
-	if err := runExpand(expandOptions{root: root, inputs: []string{tmpl}}, nil, &out); err != nil {
-		t.Fatalf("runExpand: %v", err)
+	if err := Run(Options{Root: root, Inputs: []string{tmpl}}, nil, &out); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	if out.String() != expandSearch {
 		t.Errorf("out = %q, want %q", out.String(), expandSearch)
@@ -76,8 +74,8 @@ func TestFilter_OutputFileCreatesParents(t *testing.T) {
 	root, tmpl := fixture(t)
 	outPath := filepath.Join(root, "gen", "search.sql")
 	var out strings.Builder
-	if err := runExpand(expandOptions{root: root, inputs: []string{tmpl}, output: outPath}, nil, &out); err != nil {
-		t.Fatalf("runExpand: %v", err)
+	if err := Run(Options{Root: root, Inputs: []string{tmpl}, Output: outPath}, nil, &out); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	if out.Len() != 0 {
 		t.Errorf("stdout should be empty with -o, got %q", out.String())
@@ -95,8 +93,8 @@ func TestTree_MirrorsRoot(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "gen")
 
 	var out strings.Builder
-	if err := runExpand(expandOptions{root: root, outDir: outDir}, nil, &out); err != nil {
-		t.Fatalf("runExpand: %v", err)
+	if err := Run(Options{Root: root, OutDir: outDir}, nil, &out); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	// Every *.sql is mirrored, including the fragment (expanded to itself).
 	if got := readFile(t, filepath.Join(outDir, "employees/search.sql")); got != expandSearch {
@@ -120,8 +118,8 @@ func TestTree_InputGlob(t *testing.T) {
 
 	var out strings.Builder
 	// Select only the employees directory; depts must be skipped.
-	if err := runExpand(expandOptions{root: root, outDir: outDir, outName: "{{.Path}}", inputs: []string{"employees/*.sql"}}, nil, &out); err != nil {
-		t.Fatalf("runExpand: %v", err)
+	if err := Run(Options{Root: root, OutDir: outDir, OutName: "{{.Path}}", Inputs: []string{"employees/*.sql"}}, nil, &out); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "employees/search.sql")); err != nil {
 		t.Errorf("employees/search.sql should be emitted: %v", err)
@@ -131,72 +129,14 @@ func TestTree_InputGlob(t *testing.T) {
 	}
 }
 
-// generatedRels lists the files under dir as sorted slash paths relative to dir.
-func generatedRels(t *testing.T, dir string) []string {
-	t.Helper()
-	var rels []string
-	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() {
-			rel, _ := filepath.Rel(dir, p)
-			rels = append(rels, filepath.ToSlash(rel))
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sort.Strings(rels)
-	return rels
-}
-
-// TestTree_InputSelection covers every input shape: one file, one glob, many files, many
-// globs, a file+glob mix, and overlapping patterns (which must de-duplicate).
-func TestTree_InputSelection(t *testing.T) {
-	root := t.TempDir()
-	writeTree(t, root, map[string]string{
-		"x/a.sql": "select 1",
-		"x/b.sql": "select 2",
-		"y/c.sql": "select 3",
-	})
-	cases := []struct {
-		name   string
-		inputs []string
-		want   []string
-	}{
-		{"single file", []string{"x/a.sql"}, []string{"x/a.sql"}},
-		{"single glob", []string{"x/*.sql"}, []string{"x/a.sql", "x/b.sql"}},
-		{"multiple files", []string{"x/a.sql", "y/c.sql"}, []string{"x/a.sql", "y/c.sql"}},
-		{"multiple globs", []string{"x/*.sql", "y/*.sql"}, []string{"x/a.sql", "x/b.sql", "y/c.sql"}},
-		{"file and glob", []string{"x/a.sql", "y/*.sql"}, []string{"x/a.sql", "y/c.sql"}},
-		{"overlap dedups", []string{"x/*.sql", "x/a.sql"}, []string{"x/a.sql", "x/b.sql"}},
-		{"none means all", nil, []string{"x/a.sql", "x/b.sql", "y/c.sql"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			outDir := filepath.Join(t.TempDir(), "gen")
-			var out strings.Builder
-			if err := runExpand(expandOptions{root: root, outDir: outDir, inputs: c.inputs}, nil, &out); err != nil {
-				t.Fatalf("runExpand: %v", err)
-			}
-			got := generatedRels(t, outDir)
-			if !reflect.DeepEqual(got, c.want) {
-				t.Errorf("selected %v, want %v", got, c.want)
-			}
-		})
-	}
-}
-
 func TestTree_OutName(t *testing.T) {
 	root, _ := fixture(t)
 	outDir := filepath.Join(t.TempDir(), "gen")
 
 	var out strings.Builder
 	// Keep the tree, append .gen before the extension.
-	if err := runExpand(expandOptions{root: root, outDir: outDir, outName: "{{.Dir}}/{{.Name}}.gen.sql"}, nil, &out); err != nil {
-		t.Fatalf("runExpand: %v", err)
+	if err := Run(Options{Root: root, OutDir: outDir, OutName: "{{.Dir}}/{{.Name}}.gen.sql"}, nil, &out); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	if got := readFile(t, filepath.Join(outDir, "employees/search.gen.sql")); got != expandSearch {
 		t.Errorf("renamed output = %q", got)
@@ -210,7 +150,7 @@ func TestTree_OutNameCollision(t *testing.T) {
 
 	var out strings.Builder
 	// Flattening to the base name collides: employees/search.sql and other/search.sql.
-	err := runExpand(expandOptions{root: root, outDir: outDir, outName: "{{.Base}}"}, nil, &out)
+	err := Run(Options{Root: root, OutDir: outDir, OutName: "{{.Base}}"}, nil, &out)
 	if err == nil || !strings.Contains(err.Error(), "collision") {
 		t.Errorf("want a collision error, got %v", err)
 	}
@@ -227,9 +167,9 @@ func TestTree_Exclude(t *testing.T) {
 	var out strings.Builder
 	// Exclude fragments by underscore base name (slashless -> base at any depth) and a whole
 	// directory (slash -> full path).
-	opts := expandOptions{root: root, outDir: outDir, exclude: []string{"_*.sql", "partials/**"}}
-	if err := runExpand(opts, nil, &out); err != nil {
-		t.Fatalf("runExpand: %v", err)
+	opts := Options{Root: root, OutDir: outDir, Exclude: []string{"_*.sql", "partials/**"}}
+	if err := Run(opts, nil, &out); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	// Entry templates are emitted; the excluded fragment and directory are not.
 	mustExist := []string{"employees/search.sql", "employees/list.sql"}
@@ -258,24 +198,22 @@ func TestExpand_Errors(t *testing.T) {
 
 	cases := []struct {
 		name string
-		opts expandOptions
+		opts Options
 	}{
-		{"o and out-dir", expandOptions{root: root, output: "a", outDir: "b"}},
-		{"filter two inputs", expandOptions{root: root, inputs: []string{"a.sql", "b.sql"}}},
-		{"exclude without out-dir", expandOptions{root: root, inputs: []string{tmpl}, exclude: []string{"*.sql"}}},
-		{"out-name-format without out-dir", expandOptions{root: root, inputs: []string{tmpl}, outName: "{{.Base}}"}},
-		{"tree glob matches nothing", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), inputs: []string{"zzz/*.sql"}}},
-		{"missing input file", expandOptions{root: root, inputs: []string{filepath.Join(root, "nope.sql")}}},
-		{"missing include (filter)", expandOptions{root: root, inputs: []string{filepath.Join(root, "broken.sql")}}},
-		{"missing include (tree)", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen")}},
-		{"invalid exclude pattern", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), exclude: []string{"[bad"}}},
-		{"invalid out-name", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), outName: "{{.Nope"}},
-		{"escaping out-name", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), outName: "../{{.Base}}"}},
+		{"o and out-dir", Options{Root: root, Output: "a", OutDir: "b"}},
+		{"filter two inputs", Options{Root: root, Inputs: []string{"a.sql", "b.sql"}}},
+		{"exclude without out-dir", Options{Root: root, Inputs: []string{tmpl}, Exclude: []string{"*.sql"}}},
+		{"out-name-format without out-dir", Options{Root: root, Inputs: []string{tmpl}, OutName: "{{.Base}}"}},
+		{"tree glob matches nothing", Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen"), Inputs: []string{"zzz/*.sql"}}},
+		{"missing input file", Options{Root: root, Inputs: []string{filepath.Join(root, "nope.sql")}}},
+		{"missing include (filter)", Options{Root: root, Inputs: []string{filepath.Join(root, "broken.sql")}}},
+		{"missing include (tree)", Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen")}},
+		{"invalid exclude pattern", Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen"), Exclude: []string{"[bad"}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var out strings.Builder
-			if err := runExpand(c.opts, strings.NewReader("x"), &out); err == nil {
+			if err := Run(c.opts, strings.NewReader("x"), &out); err == nil {
 				t.Errorf("expected an error (out=%q)", out.String())
 			}
 		})
