@@ -179,7 +179,13 @@ These directives are evaluated during rendering and produce the SQL and its argu
 <td>
 
 ```sql
-/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/
+/*%if e*/
+    -- body A
+/*%elseif e*/
+    -- body B
+/*%else*/
+    -- body C
+/*%end*/
 ```
 
 </td>
@@ -193,7 +199,9 @@ These directives are evaluated during rendering and produce the SQL and its argu
 <td>
 
 ```sql
-/*%for x in xs*/ … /*%end*/
+/*%for x in xs*/
+    -- body, repeated for each x
+/*%end*/
 ```
 
 </td>
@@ -260,7 +268,9 @@ list — two-way:
 
 ```sql
 insert into audit (emp_no, action)
-values /*%for e in entries : ', '*/(/*e.empNo*/0, /*e.action*/'x')/*%end*/
+values /*%for e in entries : ', '*/
+  (/*e.empNo*/0, /*e.action*/'x')
+/*%end*/
 ```
 
 | Context               | Result                                     |
