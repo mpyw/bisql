@@ -153,16 +153,42 @@ func TestE2EKeywordSearch(t *testing.T) {
 }
 
 // All-in-one across all four dialects (locks placeholder numbering across CTE + WHERE + IN),
-// plus a values-embedded snapshot.
+// with a values-embedded snapshot on one MySQL and one Postgres case.
 func TestE2EAllInOne(t *testing.T) {
 	full := map[string]any{"flag": true, "name": "SCOTT", "ids": []any{1, 2}, "byName": true}
-	dia := map[string]any{"flag": true, "name": "SCOTT", "ids": []any{1, 2}, "byName": true}
 	args := []any{true, "SCOTT", 1, 2}
 	runGolden(t, "all_in_one", []goldenCase{
 		{name: "mysql_full", params: full, args: args, embedded: true},
 		{name: "mysql_min", params: map[string]any{"flag": false}, args: []any{false}, embedded: true},
-		{name: "postgres", opts: pg(), params: dia, args: args},
-		{name: "oracle", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: dia, args: args},
-		{name: "sqlserver", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: dia, args: args},
+		{name: "postgres", opts: pg(), params: full, args: args, embedded: true},
+		{name: "oracle", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: full, args: args},
+		{name: "sqlserver", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: full, args: args},
+	})
+}
+
+// Mixed directives in one realistic query: an if/elseif/else branch, a tuple IN (row binds), a
+// /*%for*/ keyword list with a separator, and a /*^ */ inline literal. Checked on Postgres
+// (gold + else branches) and MySQL (silver branch, empty keyword list), with embedded snapshots.
+func TestE2EMixed(t *testing.T) {
+	runGolden(t, "mixed", []goldenCase{
+		{
+			name:     "pg_gold",
+			opts:     pg(),
+			params:   map[string]any{"tier": "gold", "pairs": []any{[]any{1, "x"}, []any{2, "y"}}, "keywords": []any{"%a%", "%b%"}, "limit": 50},
+			args:     []any{1, "x", 2, "y", "%a%", "%b%"},
+			embedded: true,
+		},
+		{
+			name:     "mysql_silver",
+			params:   map[string]any{"tier": "silver", "pairs": []any{[]any{3, "z"}}, "keywords": []any{}, "limit": 10},
+			args:     []any{3, "z"},
+			embedded: true,
+		},
+		{
+			name:   "pg_bronze_else",
+			opts:   pg(),
+			params: map[string]any{"tier": "bronze", "pairs": []any{[]any{9, "q"}}, "keywords": []any{"%x%"}, "limit": 5},
+			args:   []any{9, "q", "%x%"},
+		},
 	})
 }
