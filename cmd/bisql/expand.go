@@ -35,7 +35,7 @@ func expandCommand() *cli.Command {
 			&cli.StringFlag{Name: "include-root", Aliases: []string{"r"}, Value: ".", Usage: "Base `directory` for @include resolution, and the tree-mode source tree"},
 			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "Filter mode: write to `file` instead of standard output"},
 			&cli.StringFlag{Name: "out-dir", Aliases: []string{"O"}, Usage: "Tree mode: write the expanded tree into `directory`"},
-			&cli.StringFlag{Name: "out-name-format", Value: "{{.Path}}", Usage: "Tree mode: Go `template` for each output path, relative to --out-dir. Fields for employees/search.sql:\n" +
+			&cli.StringFlag{Name: "out-name-format", Usage: "Tree mode: Go `template` for each output path, relative to --out-dir. Fields for employees/search.sql:\n" +
 				"  .Path = employees/search.sql\n" +
 				"  .Dir  = employees\n" +
 				"  .Base = search.sql\n" +
@@ -72,6 +72,14 @@ func runExpand(opts expandOptions, stdin io.Reader, stdout io.Writer) error {
 	}
 	if opts.outDir != "" {
 		return runExpandTree(opts)
+	}
+	// Filter mode: the tree-only flags have no meaning here, so reject them rather than
+	// silently ignoring them.
+	if len(opts.exclude) > 0 {
+		return fmt.Errorf("--exclude is a tree-mode flag; add --out-dir to expand a tree")
+	}
+	if opts.outName != "" {
+		return fmt.Errorf("--out-name-format is a tree-mode flag; add --out-dir to expand a tree")
 	}
 	return runExpandFilter(opts, stdin, stdout)
 }

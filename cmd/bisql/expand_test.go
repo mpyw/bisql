@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -129,6 +131,64 @@ func TestTree_InputGlob(t *testing.T) {
 	}
 }
 
+// generatedRels lists the files under dir as sorted slash paths relative to dir.
+func generatedRels(t *testing.T, dir string) []string {
+	t.Helper()
+	var rels []string
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			rel, _ := filepath.Rel(dir, p)
+			rels = append(rels, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(rels)
+	return rels
+}
+
+// TestTree_InputSelection covers every input shape: one file, one glob, many files, many
+// globs, a file+glob mix, and overlapping patterns (which must de-duplicate).
+func TestTree_InputSelection(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"x/a.sql": "select 1",
+		"x/b.sql": "select 2",
+		"y/c.sql": "select 3",
+	})
+	cases := []struct {
+		name   string
+		inputs []string
+		want   []string
+	}{
+		{"single file", []string{"x/a.sql"}, []string{"x/a.sql"}},
+		{"single glob", []string{"x/*.sql"}, []string{"x/a.sql", "x/b.sql"}},
+		{"multiple files", []string{"x/a.sql", "y/c.sql"}, []string{"x/a.sql", "y/c.sql"}},
+		{"multiple globs", []string{"x/*.sql", "y/*.sql"}, []string{"x/a.sql", "x/b.sql", "y/c.sql"}},
+		{"file and glob", []string{"x/a.sql", "y/*.sql"}, []string{"x/a.sql", "y/c.sql"}},
+		{"overlap dedups", []string{"x/*.sql", "x/a.sql"}, []string{"x/a.sql", "x/b.sql"}},
+		{"none means all", nil, []string{"x/a.sql", "x/b.sql", "y/c.sql"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			outDir := filepath.Join(t.TempDir(), "gen")
+			var out strings.Builder
+			if err := runExpand(expandOptions{root: root, outDir: outDir, inputs: c.inputs}, nil, &out); err != nil {
+				t.Fatalf("runExpand: %v", err)
+			}
+			got := generatedRels(t, outDir)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("selected %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 func TestTree_OutName(t *testing.T) {
 	root, _ := fixture(t)
 	outDir := filepath.Join(t.TempDir(), "gen")
@@ -193,7 +253,7 @@ func TestTree_Exclude(t *testing.T) {
 // --- errors ---
 
 func TestExpand_Errors(t *testing.T) {
-	root, _ := fixture(t)
+	root, tmpl := fixture(t)
 	writeTree(t, root, map[string]string{"broken.sql": "/*%! @include nope.sql */"})
 
 	cases := []struct {
@@ -202,6 +262,8 @@ func TestExpand_Errors(t *testing.T) {
 	}{
 		{"o and out-dir", expandOptions{root: root, output: "a", outDir: "b"}},
 		{"filter two inputs", expandOptions{root: root, inputs: []string{"a.sql", "b.sql"}}},
+		{"exclude without out-dir", expandOptions{root: root, inputs: []string{tmpl}, exclude: []string{"*.sql"}}},
+		{"out-name-format without out-dir", expandOptions{root: root, inputs: []string{tmpl}, outName: "{{.Base}}"}},
 		{"tree glob matches nothing", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), inputs: []string{"zzz/*.sql"}}},
 		{"missing input file", expandOptions{root: root, inputs: []string{filepath.Join(root, "nope.sql")}}},
 		{"missing include (filter)", expandOptions{root: root, inputs: []string{filepath.Join(root, "broken.sql")}}},
