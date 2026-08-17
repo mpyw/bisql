@@ -515,7 +515,7 @@ Positional arguments are input globs (relative to `--include-root`, matched by t
 `@include`able. In a glob, a slashless pattern matches the base name at any depth, and a
 pattern with a slash matches the whole path.
 
-`--out-name` is a [Go template](https://pkg.go.dev/text/template) that names each output
+`--out-name-format` is a [Go template](https://pkg.go.dev/text/template) that names each output
 relative to `--out-dir`; it defaults to `{{.Path}}` (mirror the input tree). The fields, for an
 input of `employees/search.sql`, are:
 
@@ -530,7 +530,7 @@ input of `employees/search.sql`, are:
 ```sh
 # select one directory, drop fragments, and rename search.sql -> search.gen.sql (tree kept)
 bisql expand --include-root sql --out-dir gen \
-    --exclude '_*.sql' --out-name '{{.Dir}}/{{.Name}}.gen.sql' 'employees/*.sql'
+    --exclude '_*.sql' --out-name-format '{{.Dir}}/{{.Name}}.gen.sql' 'employees/*.sql'
 ```
 
 `--output`/`-o` and `--out-dir`/`-O` are mutually exclusive, and `--include-root` is `-r`.

@@ -25,23 +25,25 @@ func expandCommand() *cli.Command {
 			"  bisql expand [--include-root DIR] [--output FILE] [template.sql|-]\n" +
 			"\n" +
 			"Tree mode — expand the *.sql files under the root into a directory:\n" +
-			"  bisql expand [--include-root DIR] [--out-name TMPL] [--exclude GLOB]... --out-dir DIR [GLOB...]",
+			"  bisql expand [--include-root DIR] [--out-name-format TMPL] [--exclude GLOB]... --out-dir DIR [GLOB...]",
 		Description: "Resolves /*%! @include ... */ directives and writes the expanded, still-two-way\n" +
-			"SQL. Include names resolve under --include-root, as the library's FSLoader does;\n" +
-			"expansion exits non-zero on an unresolved include, so a run also validates.\n\n" +
-			"Filter mode reads one template (a file or standard input) to standard output, or\n" +
-			"to --output. Tree mode (--out-dir) expands the *.sql files under --include-root in\n" +
-			"one process — the form for go generate. Positional GLOBs select the inputs (default:\n" +
-			"all), --exclude removes fragment files from the output (they stay @includable), and\n" +
-			"--out-name is a Go template naming each output relative to --out-dir. GLOBs are\n" +
-			"matched by the tool (** spans directories); a slashless pattern matches the base\n" +
-			"name at any depth. --out-name fields: .Path .Dir .Base .Name .Ext (e.g. for\n" +
-			"employees/search.sql: employees, search.sql, search, .sql).",
+			"SQL. Include names resolve under --include-root, as the library's FSLoader does; an\n" +
+			"unresolved include exits non-zero, so a run also validates.\n\n" +
+			"Filter mode: one template (a file or standard input) to standard output or --output.\n\n" +
+			"Tree mode (--out-dir): expand the *.sql files under --include-root in one process.\n" +
+			"Positional GLOBs select inputs (default: all); --exclude removes files from the\n" +
+			"output (they stay @includable). --out-name-format is a Go template naming each\n" +
+			"output relative to --out-dir; its fields, for input employees/search.sql, are:\n\n" +
+			"    {{.Path}}   employees/search.sql\n" +
+			"    {{.Dir}}    employees\n" +
+			"    {{.Base}}   search.sql\n" +
+			"    {{.Name}}   search\n" +
+			"    {{.Ext}}    .sql",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "include-root", Aliases: []string{"r"}, Value: ".", Usage: "Base `directory` for @include resolution (and the tree-mode source)"},
 			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "Filter mode: write to `file` instead of standard output"},
 			&cli.StringFlag{Name: "out-dir", Aliases: []string{"O"}, Usage: "Tree mode: write the expanded tree into `directory`"},
-			&cli.StringFlag{Name: "out-name", Value: "{{.Path}}", Usage: "Tree mode: Go `template` for each output path, relative to --out-dir (default mirrors the input)"},
+			&cli.StringFlag{Name: "out-name-format", Value: "{{.Path}}", Usage: "Tree mode: Go `template` for each output path, relative to --out-dir (default mirrors the input)"},
 			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"x"}, Usage: "Tree mode: omit files matching `glob` from the output (repeatable; still @includable)"},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
@@ -50,7 +52,7 @@ func expandCommand() *cli.Command {
 				inputs:  cmd.Args().Slice(),
 				output:  cmd.String("output"),
 				outDir:  cmd.String("out-dir"),
-				outName: cmd.String("out-name"),
+				outName: cmd.String("out-name-format"),
 				exclude: cmd.StringSlice("exclude"),
 			}, os.Stdin, os.Stdout)
 		},
