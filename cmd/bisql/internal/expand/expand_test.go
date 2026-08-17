@@ -1,10 +1,12 @@
-package expand
+package expand_test
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mpyw/bisql/cmd/bisql/internal/expand"
 )
 
 func writeTree(t *testing.T, dir string, files map[string]string) {
@@ -51,7 +53,7 @@ func TestFilter_Stdin(t *testing.T) {
 	root, _ := fixture(t)
 	in := strings.NewReader("x /*%! @include employees/_active.sql */")
 	var out strings.Builder
-	if err := Run(Options{Root: root}, in, &out); err != nil {
+	if err := expand.Run(expand.Options{Root: root}, in, &out); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if want := "x " + fragActive; out.String() != want {
@@ -62,7 +64,7 @@ func TestFilter_Stdin(t *testing.T) {
 func TestFilter_FileToStdout(t *testing.T) {
 	root, tmpl := fixture(t)
 	var out strings.Builder
-	if err := Run(Options{Root: root, Inputs: []string{tmpl}}, nil, &out); err != nil {
+	if err := expand.Run(expand.Options{Root: root, Inputs: []string{tmpl}}, nil, &out); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if out.String() != expandSearch {
@@ -74,7 +76,7 @@ func TestFilter_OutputFileCreatesParents(t *testing.T) {
 	root, tmpl := fixture(t)
 	outPath := filepath.Join(root, "gen", "search.sql")
 	var out strings.Builder
-	if err := Run(Options{Root: root, Inputs: []string{tmpl}, Output: outPath}, nil, &out); err != nil {
+	if err := expand.Run(expand.Options{Root: root, Inputs: []string{tmpl}, Output: outPath}, nil, &out); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if out.Len() != 0 {
@@ -93,7 +95,7 @@ func TestTree_MirrorsRoot(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "gen")
 
 	var out strings.Builder
-	if err := Run(Options{Root: root, OutDir: outDir}, nil, &out); err != nil {
+	if err := expand.Run(expand.Options{Root: root, OutDir: outDir}, nil, &out); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	// Every *.sql is mirrored, including the fragment (expanded to itself).
@@ -118,7 +120,7 @@ func TestTree_InputGlob(t *testing.T) {
 
 	var out strings.Builder
 	// Select only the employees directory; depts must be skipped.
-	if err := Run(Options{Root: root, OutDir: outDir, OutName: "{{.Path}}", Inputs: []string{"employees/*.sql"}}, nil, &out); err != nil {
+	if err := expand.Run(expand.Options{Root: root, OutDir: outDir, OutName: "{{.Path}}", Inputs: []string{"employees/*.sql"}}, nil, &out); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "employees/search.sql")); err != nil {
@@ -135,7 +137,7 @@ func TestTree_OutName(t *testing.T) {
 
 	var out strings.Builder
 	// Keep the tree, append .gen before the extension.
-	if err := Run(Options{Root: root, OutDir: outDir, OutName: "{{.Dir}}/{{.Name}}.gen.sql"}, nil, &out); err != nil {
+	if err := expand.Run(expand.Options{Root: root, OutDir: outDir, OutName: "{{.Dir}}/{{.Name}}.gen.sql"}, nil, &out); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if got := readFile(t, filepath.Join(outDir, "employees/search.gen.sql")); got != expandSearch {
@@ -150,7 +152,7 @@ func TestTree_OutNameCollision(t *testing.T) {
 
 	var out strings.Builder
 	// Flattening to the base name collides: employees/search.sql and other/search.sql.
-	err := Run(Options{Root: root, OutDir: outDir, OutName: "{{.Base}}"}, nil, &out)
+	err := expand.Run(expand.Options{Root: root, OutDir: outDir, OutName: "{{.Base}}"}, nil, &out)
 	if err == nil || !strings.Contains(err.Error(), "collision") {
 		t.Errorf("want a collision error, got %v", err)
 	}
@@ -167,8 +169,8 @@ func TestTree_Exclude(t *testing.T) {
 	var out strings.Builder
 	// Exclude fragments by underscore base name (slashless -> base at any depth) and a whole
 	// directory (slash -> full path).
-	opts := Options{Root: root, OutDir: outDir, Exclude: []string{"_*.sql", "partials/**"}}
-	if err := Run(opts, nil, &out); err != nil {
+	opts := expand.Options{Root: root, OutDir: outDir, Exclude: []string{"_*.sql", "partials/**"}}
+	if err := expand.Run(opts, nil, &out); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	// Entry templates are emitted; the excluded fragment and directory are not.
@@ -198,22 +200,22 @@ func TestExpand_Errors(t *testing.T) {
 
 	cases := []struct {
 		name string
-		opts Options
+		opts expand.Options
 	}{
-		{"o and out-dir", Options{Root: root, Output: "a", OutDir: "b"}},
-		{"filter two inputs", Options{Root: root, Inputs: []string{"a.sql", "b.sql"}}},
-		{"exclude without out-dir", Options{Root: root, Inputs: []string{tmpl}, Exclude: []string{"*.sql"}}},
-		{"out-name-format without out-dir", Options{Root: root, Inputs: []string{tmpl}, OutName: "{{.Base}}"}},
-		{"tree glob matches nothing", Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen"), Inputs: []string{"zzz/*.sql"}}},
-		{"missing input file", Options{Root: root, Inputs: []string{filepath.Join(root, "nope.sql")}}},
-		{"missing include (filter)", Options{Root: root, Inputs: []string{filepath.Join(root, "broken.sql")}}},
-		{"missing include (tree)", Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen")}},
-		{"invalid exclude pattern", Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen"), Exclude: []string{"[bad"}}},
+		{"o and out-dir", expand.Options{Root: root, Output: "a", OutDir: "b"}},
+		{"filter two inputs", expand.Options{Root: root, Inputs: []string{"a.sql", "b.sql"}}},
+		{"exclude without out-dir", expand.Options{Root: root, Inputs: []string{tmpl}, Exclude: []string{"*.sql"}}},
+		{"out-name-format without out-dir", expand.Options{Root: root, Inputs: []string{tmpl}, OutName: "{{.Base}}"}},
+		{"tree glob matches nothing", expand.Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen"), Inputs: []string{"zzz/*.sql"}}},
+		{"missing input file", expand.Options{Root: root, Inputs: []string{filepath.Join(root, "nope.sql")}}},
+		{"missing include (filter)", expand.Options{Root: root, Inputs: []string{filepath.Join(root, "broken.sql")}}},
+		{"missing include (tree)", expand.Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen")}},
+		{"invalid exclude pattern", expand.Options{Root: root, OutDir: filepath.Join(t.TempDir(), "gen"), Exclude: []string{"[bad"}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var out strings.Builder
-			if err := Run(c.opts, strings.NewReader("x"), &out); err == nil {
+			if err := expand.Run(c.opts, strings.NewReader("x"), &out); err == nil {
 				t.Errorf("expected an error (out=%q)", out.String())
 			}
 		})

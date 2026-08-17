@@ -1,10 +1,12 @@
-package selection
+package selection_test
 
 import (
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/mpyw/bisql/cmd/bisql/internal/selection"
 )
 
 func writeTree(t *testing.T, dir string, files ...string) {
@@ -40,7 +42,7 @@ func TestSelectInputs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := SelectInputs(root, c.globs)
+			got, err := selection.SelectInputs(root, c.globs)
 			if err != nil {
 				t.Fatalf("SelectInputs: %v", err)
 			}
@@ -54,13 +56,13 @@ func TestSelectInputs(t *testing.T) {
 func TestSelectInputs_Errors(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, "a.sql")
-	if _, err := SelectInputs(root, []string{"nope/*.sql"}); err == nil {
+	if _, err := selection.SelectInputs(root, []string{"nope/*.sql"}); err == nil {
 		t.Error("a glob matching nothing should error")
 	}
-	if _, err := SelectInputs(t.TempDir(), nil); err == nil {
+	if _, err := selection.SelectInputs(t.TempDir(), nil); err == nil {
 		t.Error("an empty tree should error")
 	}
-	if _, err := SelectInputs(root, []string{"[bad"}); err == nil {
+	if _, err := selection.SelectInputs(root, []string{"[bad"}); err == nil {
 		t.Error("an invalid glob should error")
 	}
 }
@@ -78,12 +80,12 @@ func TestMatch(t *testing.T) {
 		{"employees/sub/x.sql", "employees/*.sql", false}, // * does not cross a slash
 	}
 	for _, c := range cases {
-		got, err := Match(c.rel, []string{c.pat})
+		got, err := selection.Match(c.rel, []string{c.pat})
 		if err != nil {
-			t.Fatalf("Match(%q,%q): %v", c.rel, c.pat, err)
+			t.Fatalf("selection.Match(%q,%q): %v", c.rel, c.pat, err)
 		}
 		if got != c.want {
-			t.Errorf("Match(%q,%q) = %v, want %v", c.rel, c.pat, got, c.want)
+			t.Errorf("selection.Match(%q,%q) = %v, want %v", c.rel, c.pat, got, c.want)
 		}
 	}
 }

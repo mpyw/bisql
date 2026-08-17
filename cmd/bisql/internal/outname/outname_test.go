@@ -1,6 +1,10 @@
-package outname
+package outname_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/mpyw/bisql/cmd/bisql/internal/outname"
+)
 
 func TestRender(t *testing.T) {
 	cases := []struct {
@@ -14,7 +18,7 @@ func TestRender(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			f, err := Parse(c.format)
+			f, err := outname.Parse(c.format)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -30,7 +34,7 @@ func TestRender(t *testing.T) {
 }
 
 func TestParse_Invalid(t *testing.T) {
-	if _, err := Parse("{{.Nope"); err == nil {
+	if _, err := outname.Parse("{{.Nope"); err == nil {
 		t.Error("an unterminated template should fail to parse")
 	}
 }
@@ -42,7 +46,7 @@ func TestRender_Rejects(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			f, err := Parse(c.format)
+			f, err := outname.Parse(c.format)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}

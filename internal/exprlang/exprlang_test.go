@@ -1,14 +1,15 @@
-package exprlang
+package exprlang_test
 
 import (
 	"testing"
 
 	"github.com/mpyw/bisql/expr"
+	"github.com/mpyw/bisql/internal/exprlang"
 )
 
 func eval(t *testing.T, e string, scope expr.Scope) any {
 	t.Helper()
-	v, err := (&Default{}).Eval(e, scope)
+	v, err := (&exprlang.Default{}).Eval(e, scope)
 	if err != nil {
 		t.Fatalf("Eval(%q): %v", e, err)
 	}
@@ -17,7 +18,7 @@ func eval(t *testing.T, e string, scope expr.Scope) any {
 
 func evalErr(t *testing.T, e string, scope expr.Scope) {
 	t.Helper()
-	if _, err := (&Default{}).Eval(e, scope); err == nil {
+	if _, err := (&exprlang.Default{}).Eval(e, scope); err == nil {
 		t.Fatalf("Eval(%q): expected error", e)
 	}
 }
@@ -157,7 +158,7 @@ func TestEval_errors(t *testing.T) {
 }
 
 func TestEval_cacheReuse(t *testing.T) {
-	d := &Default{}
+	d := &exprlang.Default{}
 	for i := 0; i < 3; i++ {
 		v, err := d.Eval("a + 1", expr.Scope{"a": i})
 		if err != nil {

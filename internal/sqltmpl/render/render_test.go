@@ -1,4 +1,4 @@
-package render
+package render_test
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/mpyw/bisql/expr"
 	"github.com/mpyw/bisql/internal/sqltmpl/parser"
+	"github.com/mpyw/bisql/internal/sqltmpl/render"
 )
 
 // stubEval isolates render from the real expression language: an expression is a scope key.
@@ -33,13 +34,13 @@ func litFn(v any) (string, error) {
 	return fmt.Sprintf("%v", v), nil
 }
 
-func renderTmpl(t *testing.T, tmpl string, scope expr.Scope, ph func(int, string) string) Result {
+func renderTmpl(t *testing.T, tmpl string, scope expr.Scope, ph func(int, string) string) render.Result {
 	t.Helper()
 	n, err := parser.Parse(tmpl)
 	if err != nil {
 		t.Fatalf("parse %q: %v", tmpl, err)
 	}
-	res, err := Render(n, scope, Config{Evaluator: stubEval{}, Placeholder: ph, Literal: litFn})
+	res, err := render.Render(n, scope, render.Config{Evaluator: stubEval{}, Placeholder: ph, Literal: litFn})
 	if err != nil {
 		t.Fatalf("render %q: %v", tmpl, err)
 	}
@@ -125,7 +126,7 @@ func TestRender_If(t *testing.T) {
 	}
 	// non-nil non-bool -> error
 	n, _ := parser.Parse(tmpl)
-	if _, err := Render(n, expr.Scope{"flag": 5}, Config{Evaluator: stubEval{}, Placeholder: qmark, Literal: litFn}); err == nil {
+	if _, err := render.Render(n, expr.Scope{"flag": 5}, render.Config{Evaluator: stubEval{}, Placeholder: qmark, Literal: litFn}); err == nil {
 		t.Error("non-bool if must error")
 	}
 }
@@ -142,7 +143,7 @@ func TestRender_For(t *testing.T) {
 	}
 	// non-nil non-iterable -> error
 	n, _ := parser.Parse("/*%for i in xs*/Y/*%end*/")
-	if _, err := Render(n, expr.Scope{"xs": 5}, Config{Evaluator: stubEval{}, Placeholder: qmark, Literal: litFn}); err == nil {
+	if _, err := render.Render(n, expr.Scope{"xs": 5}, render.Config{Evaluator: stubEval{}, Placeholder: qmark, Literal: litFn}); err == nil {
 		t.Error("non-iterable for must error")
 	}
 }
@@ -151,8 +152,8 @@ func TestRender_For(t *testing.T) {
 func TestRender_ForRestoresScope(t *testing.T) {
 	// A caller key named i is shadowed by the loop variable during the loop and restored after.
 	n, _ := parser.Parse("/*%for i in xs*/z/*%end*/[/*^i*/'x']")
-	res, err := Render(n, expr.Scope{"xs": []any{1, 2}, "i": "KEEP"},
-		Config{Evaluator: keyEval{}, Placeholder: qmark, Literal: litFn})
+	res, err := render.Render(n, expr.Scope{"xs": []any{1, 2}, "i": "KEEP"},
+		render.Config{Evaluator: keyEval{}, Placeholder: qmark, Literal: litFn})
 	if err != nil {
 		t.Fatal(err)
 	}

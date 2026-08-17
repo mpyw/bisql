@@ -1,8 +1,9 @@
-package lexer
+package lexer_test
 
 import (
 	"testing"
 
+	"github.com/mpyw/bisql/internal/sqltmpl/lexer"
 	"github.com/mpyw/bisql/internal/sqltmpl/token"
 )
 
@@ -14,7 +15,7 @@ type tk struct {
 // scanAll drains the lexer into a slice of (kind, text), excluding the trailing EOF.
 func scanAll(t *testing.T, src string) []tk {
 	t.Helper()
-	l := New(src)
+	l := lexer.New(src)
 	var out []tk
 	for {
 		k := l.Next()
@@ -115,7 +116,7 @@ func TestLexer_Errors(t *testing.T) {
 		"/* unterminated",
 		"/*%bogus*/", // unknown %directive
 	} {
-		l := New(src)
+		l := lexer.New(src)
 		var illegal bool
 		for {
 			k := l.Next()

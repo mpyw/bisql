@@ -1,11 +1,13 @@
-package preprocess
+package preprocess_test
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/mpyw/bisql/internal/sqltmpl/preprocess"
 )
 
-func res(m map[string]string) Resolver {
+func res(m map[string]string) preprocess.Resolver {
 	return func(name string) (string, error) {
 		s, ok := m[name]
 		if !ok {
@@ -20,7 +22,7 @@ type errNotFound string
 func (e errNotFound) Error() string { return "unknown fragment " + string(e) }
 
 func TestExpand_Basic(t *testing.T) {
-	got, err := Expand("a /*%! @include frag */ b", res(map[string]string{"frag": "X"}))
+	got, err := preprocess.Expand("a /*%! @include frag */ b", res(map[string]string{"frag": "X"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +32,7 @@ func TestExpand_Basic(t *testing.T) {
 }
 
 func TestExpand_Recursive(t *testing.T) {
-	got, err := Expand("/*%! @include a */", res(map[string]string{
+	got, err := preprocess.Expand("/*%! @include a */", res(map[string]string{
 		"a": "x /*%! @include b */",
 		"b": "y /*%! @include c */",
 		"c": "z",
@@ -44,7 +46,7 @@ func TestExpand_Recursive(t *testing.T) {
 }
 
 func TestExpand_Cycle(t *testing.T) {
-	_, err := Expand("/*%! @include a */", res(map[string]string{
+	_, err := preprocess.Expand("/*%! @include a */", res(map[string]string{
 		"a": "/*%! @include b */",
 		"b": "/*%! @include a */",
 	}))
@@ -54,7 +56,7 @@ func TestExpand_Cycle(t *testing.T) {
 }
 
 func TestExpand_Unknown(t *testing.T) {
-	if _, err := Expand("/*%! @include nope */", res(nil)); err == nil {
+	if _, err := preprocess.Expand("/*%! @include nope */", res(nil)); err == nil {
 		t.Error("expected unknown-fragment error")
 	}
 }
@@ -66,7 +68,7 @@ func TestExpand_QuoteAware(t *testing.T) {
 		"\"/*%! @include frag */\"",
 		"`/*%! @include frag */`",
 	} {
-		got, err := Expand(src, res(map[string]string{"frag": "BAD"}))
+		got, err := preprocess.Expand(src, res(map[string]string{"frag": "BAD"}))
 		if err != nil {
 			t.Fatalf("%q: %v", src, err)
 		}
@@ -84,7 +86,7 @@ func TestExpand_NonIncludeUntouched(t *testing.T) {
 		"-- line @include frag",
 		"no directives here",
 	} {
-		got, err := Expand(src, res(map[string]string{"frag": "BAD"}))
+		got, err := preprocess.Expand(src, res(map[string]string{"frag": "BAD"}))
 		if err != nil {
 			t.Fatalf("%q: %v", src, err)
 		}
@@ -99,12 +101,12 @@ func TestExpand_NameErrors(t *testing.T) {
 		"/*%! @include */",     // missing name
 		"/*%! @include a b */", // multi-token name
 	} {
-		if _, err := Expand(src, res(map[string]string{"a": "x"})); err == nil {
+		if _, err := preprocess.Expand(src, res(map[string]string{"a": "x"})); err == nil {
 			t.Errorf("expected error for %q", src)
 		}
 	}
 	// @includes (not the keyword) is a plain parser comment
-	got, err := Expand("/*%! @includes x */", res(nil))
+	got, err := preprocess.Expand("/*%! @includes x */", res(nil))
 	if err != nil || got != "/*%! @includes x */" {
 		t.Errorf("got %q err=%v", got, err)
 	}
