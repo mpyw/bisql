@@ -486,6 +486,19 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
 ```
 
+The same step is available as a command-line tool, `bisql-expand`, which writes the expanded
+template to stdout (or to a file with `-o`). The template path and every `@include` name
+resolve as paths under `-root`:
+
+```sh
+go run github.com/mpyw/bisql/cmd/bisql-expand@latest \
+  -root sql employees/search.sql
+
+# from stdin:
+cat sql/employees/search.sql | \
+  go run github.com/mpyw/bisql/cmd/bisql-expand@latest -root sql -
+```
+
 ## Authoring rules
 
 Because the engine removes nothing implicitly, a template author observes the following rules.
@@ -618,6 +631,8 @@ bisql            Public API: NewParser, Parser, Parse, ParseFile, Expand, Expand
 dialect/         Dialect definitions: placeholder generation and literal formatting
                  (MySQL, PostgreSQL, Oracle, SQL Server).
 expr/            Evaluator interface and Scope (for custom evaluators).
+cmd/
+  bisql-expand/  CLI wrapper over Expand/ExpandFile (resolves @include).
 internal/
   sqltmpl/       Template layer: token, ast, lexer, parser, render, preprocess.
   exprlang/      Default evaluator (expr-lang).
