@@ -32,8 +32,8 @@ type RegistryLoader struct {
 	fragments map[string]string
 }
 
-// NewRegistry creates an empty RegistryLoader.
-func NewRegistry() *RegistryLoader {
+// NewRegistryLoader creates an empty RegistryLoader.
+func NewRegistryLoader() *RegistryLoader {
 	return &RegistryLoader{fragments: map[string]string{}}
 }
 

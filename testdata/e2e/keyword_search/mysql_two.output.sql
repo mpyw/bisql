@@ -1,16 +1,14 @@
-SELECT * FROM products
+SELECT * FROM users
 WHERE
   1 = 0
 
   OR (
-    x LIKE ?
-    AND y LIKE ?
-    AND z LIKE ?
+    name LIKE ?
+    OR email LIKE ?
   )
 
   OR (
-    x LIKE ?
-    AND y LIKE ?
-    AND z LIKE ?
+    name LIKE ?
+    OR email LIKE ?
   )
 

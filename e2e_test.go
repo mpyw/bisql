@@ -126,28 +126,28 @@ func runGoldenInclude(t *testing.T, template, root string, cases []goldenCase) {
 // expanded two-way text and the rendered (SQL, Args) across dialects and branch selections.
 func TestE2EInclude(t *testing.T) {
 	runGoldenInclude(t, "include_search", "input.sql", []goldenCase{
-		{name: "pg_all", opts: pg(), params: map[string]any{"activeOnly": true, "zero": 0, "dept": 10, "name": "SCOTT"}, args: []any{0, 10, "SCOTT"}, embedded: true},
-		{name: "pg_name_only", opts: pg(), params: map[string]any{"name": "SCOTT"}, args: []any{"SCOTT"}},
+		{name: "pg_all", opts: pg(), params: map[string]any{"activeOnly": true, "status": "active", "dept": 3, "name": "Alice"}, args: []any{"active", 3, "Alice"}, embedded: true},
+		{name: "pg_name_only", opts: pg(), params: map[string]any{"name": "Alice"}, args: []any{"Alice"}},
 		{name: "mysql_none", params: map[string]any{}},
 	})
 }
 
 func TestE2EDynamicWhere(t *testing.T) {
 	runGolden(t, "dynamic_where", []goldenCase{
-		{name: "all_set", params: map[string]any{"name": "SCOTT", "age": 20, "ids": []any{1, 2, 3}}, args: []any{"SCOTT", 20, 1, 2, 3}, embedded: true},
-		{name: "age_only", params: map[string]any{"age": 20}, args: []any{20}, embedded: true},
+		{name: "all_set", params: map[string]any{"name": "Alice", "age": 30, "ids": []any{1, 2, 3}}, args: []any{"Alice", 30, 1, 2, 3}, embedded: true},
+		{name: "age_only", params: map[string]any{"age": 30}, args: []any{30}, embedded: true},
 		{name: "none", params: map[string]any{}},
 	})
 }
 
 // Keyword search: 1=0 OR-anchor + a for-loop whose body is a self-contained "OR (...)" with
-// three /* kw */ binds per keyword. Checked on MySQL and Postgres (locks global numbering)
-// and with an empty keyword list.
+// two /* kw */ binds per keyword (name + email). Checked on MySQL and Postgres (locks global
+// numbering) and with an empty keyword list.
 func TestE2EKeywordSearch(t *testing.T) {
-	kws := map[string]any{"keywords": []any{"%a%", "%b%"}}
+	kws := map[string]any{"keywords": []any{"%ali%", "%bob%"}}
 	runGolden(t, "keyword_search", []goldenCase{
-		{name: "mysql_two", params: kws, args: []any{"%a%", "%a%", "%a%", "%b%", "%b%", "%b%"}},
-		{name: "postgres_two", opts: pg(), params: kws, args: []any{"%a%", "%a%", "%a%", "%b%", "%b%", "%b%"}},
+		{name: "mysql_two", params: kws, args: []any{"%ali%", "%ali%", "%bob%", "%bob%"}},
+		{name: "postgres_two", opts: pg(), params: kws, args: []any{"%ali%", "%ali%", "%bob%", "%bob%"}},
 		{name: "empty", params: map[string]any{"keywords": []any{}}},
 	})
 }
@@ -155,8 +155,8 @@ func TestE2EKeywordSearch(t *testing.T) {
 // All-in-one across all four dialects (locks placeholder numbering across CTE + WHERE + IN),
 // with a values-embedded snapshot on one MySQL and one Postgres case.
 func TestE2EAllInOne(t *testing.T) {
-	full := map[string]any{"flag": true, "name": "SCOTT", "ids": []any{1, 2}, "byName": true}
-	args := []any{true, "SCOTT", 1, 2}
+	full := map[string]any{"flag": true, "name": "Alice", "ids": []any{1, 2, 3}, "byName": true}
+	args := []any{true, "Alice", 1, 2, 3}
 	runGolden(t, "all_in_one", []goldenCase{
 		{name: "mysql_full", params: full, args: args, embedded: true},
 		{name: "mysql_min", params: map[string]any{"flag": false}, args: []any{false}, embedded: true},
@@ -166,29 +166,30 @@ func TestE2EAllInOne(t *testing.T) {
 	})
 }
 
-// Mixed directives in one realistic query: an if/elseif/else branch, a tuple IN (row binds), a
-// /*%for*/ keyword list with a separator, and a /*^ */ inline literal. Checked on Postgres
-// (gold + else branches) and MySQL (silver branch, empty keyword list), with embedded snapshots.
+// Mixed directives in one realistic query: an if/elseif/else branch on status, a tuple IN (row
+// binds), a /*%for*/ keyword list with a separator, and a /*^ */ inline literal. Checked on
+// Postgres (active + else/banned branches) and MySQL (pending branch, empty keyword list), with
+// embedded snapshots.
 func TestE2EMixed(t *testing.T) {
 	runGolden(t, "mixed", []goldenCase{
 		{
-			name:     "pg_gold",
+			name:     "pg_active",
 			opts:     pg(),
-			params:   map[string]any{"tier": "gold", "pairs": []any{[]any{1, "x"}, []any{2, "y"}}, "keywords": []any{"%a%", "%b%"}, "limit": 50},
-			args:     []any{1, "x", 2, "y", "%a%", "%b%"},
+			params:   map[string]any{"status": "active", "pairs": []any{[]any{1, "active"}, []any{2, "pending"}}, "keywords": []any{"%ali%", "%bob%"}, "limit": 50},
+			args:     []any{1, "active", 2, "pending", "%ali%", "%bob%"},
 			embedded: true,
 		},
 		{
-			name:     "mysql_silver",
-			params:   map[string]any{"tier": "silver", "pairs": []any{[]any{3, "z"}}, "keywords": []any{}, "limit": 10},
-			args:     []any{3, "z"},
+			name:     "mysql_pending",
+			params:   map[string]any{"status": "pending", "pairs": []any{[]any{3, "banned"}}, "keywords": []any{}, "limit": 10},
+			args:     []any{3, "banned"},
 			embedded: true,
 		},
 		{
-			name:   "pg_bronze_else",
+			name:   "pg_banned_else",
 			opts:   pg(),
-			params: map[string]any{"tier": "bronze", "pairs": []any{[]any{9, "q"}}, "keywords": []any{"%x%"}, "limit": 5},
-			args:   []any{9, "q", "%x%"},
+			params: map[string]any{"status": "banned", "pairs": []any{[]any{9, "active"}}, "keywords": []any{"%x%"}, "limit": 5},
+			args:   []any{9, "active", "%x%"},
 		},
 	})
 }

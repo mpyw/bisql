@@ -1,10 +1,10 @@
-with active as (
-    select id from acct where flag = :1
+with vip as (
+    select id from departments where :1
 )
-select p.id, p.name
-from person p
-join active a on a.id = p.id
+select u.id, u.name
+from users u
+join vip on vip.id = u.department_id
 where 1 = 1
-and name = :2
-and p.id in (:3, :4)
-order by name, p.id
+and u.name = :2
+and u.id in (:3, :4, :5)
+order by u.name, u.id

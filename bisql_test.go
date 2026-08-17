@@ -57,8 +57,8 @@ func nilIfEmpty(a []any) []any {
 
 func TestBind(t *testing.T) {
 	run(t, []buildCase{
-		{name: "scalar", tmpl: "where name = /*name*/'x'", params: map[string]any{"name": "SCOTT"},
-			sql: "where name = ?", args: []any{"SCOTT"}, withArgs: "where name = 'SCOTT'"},
+		{name: "scalar", tmpl: "where name = /*name*/'x'", params: map[string]any{"name": "Alice"},
+			sql: "where name = ?", args: []any{"Alice"}, withArgs: "where name = 'Alice'"},
 		{name: "nil value", tmpl: "where name = /*name*/'x'", params: map[string]any{"name": nil},
 			sql: "where name = ?", args: []any{nil}, withArgs: "where name = null"},
 		{name: "in expands", tmpl: "where id in /*ids*/('a')", params: map[string]any{"ids": []any{"x", "y", "z"}},
@@ -135,9 +135,9 @@ func TestAnchorIdioms(t *testing.T) {
 		{
 			name:   "dynamic where with 1=1 anchor",
 			tmpl:   "select * from t where 1 = 1 /*%if name != null*/and name = /*name*/'x'/*%end*/ /*%if age != null*/and age > /*age*/0/*%end*/",
-			params: map[string]any{"name": "SCOTT"},
+			params: map[string]any{"name": "Alice"},
 			sql:    "select * from t where 1 = 1 and name = ? ",
-			args:   []any{"SCOTT"},
+			args:   []any{"Alice"},
 		},
 		{
 			name:   "dynamic where none set keeps 1=1",
@@ -295,25 +295,25 @@ func TestPlaceholderNumbering(t *testing.T) {
 }
 
 func TestStructParams(t *testing.T) {
-	type Base struct{ TenantID int }
+	type Base struct{ DepartmentID int }
 	type Query struct {
 		Base
 		Name string
 		ID   int
 	}
-	tmpl, err := bisql.Parse("where tenant = /*TenantID*/0 and name = /*Name*/'x'")
+	tmpl, err := bisql.Parse("where department_id = /*DepartmentID*/0 and name = /*Name*/'x'")
 	if err != nil {
 		t.Fatal(err)
 	}
-	stmt, err := tmpl.Build(Query{Base: Base{TenantID: 7}, Name: "bob", ID: 3})
+	stmt, err := tmpl.Build(Query{Base: Base{DepartmentID: 3}, Name: "Bob", ID: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(stmt.Args, []any{7, "bob"}) {
-		t.Errorf("Args got %#v (embedded TenantID promoted?)", stmt.Args)
+	if !reflect.DeepEqual(stmt.Args, []any{3, "Bob"}) {
+		t.Errorf("Args got %#v (embedded DepartmentID promoted?)", stmt.Args)
 	}
 	// pointer works too
-	if _, err := tmpl.Build(&Query{Name: "x"}); err != nil {
+	if _, err := tmpl.Build(&Query{Name: "Bob"}); err != nil {
 		t.Errorf("pointer struct: %v", err)
 	}
 }
@@ -404,22 +404,22 @@ func (keyEvaluator) Eval(e string, s expr.Scope) (any, error) { return s[e], nil
 
 func TestInclude(t *testing.T) {
 	t.Run("register + parse", func(t *testing.T) {
-		ld := bisql.NewRegistry().Register("active", "/*%if activeOnly*/retired = /*zero*/0/*%end*/")
-		tmpl, err := bisql.Parse("select 1 from emp where /*%! @include active */ 1 = 1", bisql.WithLoader(ld))
+		ld := bisql.NewRegistryLoader().Register("active", "/*%if activeOnly*/status = /*status*/'active'/*%end*/")
+		tmpl, err := bisql.Parse("select id from users where /*%! @include active */ 1 = 1", bisql.WithLoader(ld))
 		if err != nil {
 			t.Fatal(err)
 		}
-		stmt, err := tmpl.Build(map[string]any{"activeOnly": true, "zero": 0})
+		stmt, err := tmpl.Build(map[string]any{"activeOnly": true, "status": "active"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if stmt.SQL != "select 1 from emp where retired = ? 1 = 1" || !reflect.DeepEqual(stmt.Args, []any{0}) {
+		if stmt.SQL != "select id from users where status = ? 1 = 1" || !reflect.DeepEqual(stmt.Args, []any{"active"}) {
 			t.Errorf("SQL=%q Args=%#v", stmt.SQL, stmt.Args)
 		}
 	})
 
 	t.Run("nested + Expand dumps 2-way text", func(t *testing.T) {
-		ld := bisql.NewRegistry().
+		ld := bisql.NewRegistryLoader().
 			Register("a", "x = 1 /*%! @include b */").
 			Register("b", "and y = 2")
 		got, err := bisql.Expand("where /*%! @include a */", bisql.WithLoader(ld))
@@ -432,14 +432,14 @@ func TestInclude(t *testing.T) {
 	})
 
 	t.Run("FSLoader", func(t *testing.T) {
-		fsys := fstest.MapFS{"sql/active.sql": &fstest.MapFile{Data: []byte("retired = /*zero*/0")}}
+		fsys := fstest.MapFS{"sql/active.sql": &fstest.MapFile{Data: []byte("status = /*status*/'active'")}}
 		ld := bisql.NewFSLoader(fsys)
 		tmpl, err := bisql.Parse("where /*%! @include sql/active.sql */", bisql.WithLoader(ld))
 		if err != nil {
 			t.Fatal(err)
 		}
-		stmt, _ := tmpl.Build(map[string]any{"zero": 0})
-		if stmt.SQL != "where retired = ?" {
+		stmt, _ := tmpl.Build(map[string]any{"status": "active"})
+		if stmt.SQL != "where status = ?" {
 			t.Errorf("got %q", stmt.SQL)
 		}
 	})
@@ -459,7 +459,7 @@ func TestInclude(t *testing.T) {
 	})
 
 	t.Run("cycle errors", func(t *testing.T) {
-		ld := bisql.NewRegistry().
+		ld := bisql.NewRegistryLoader().
 			Register("a", "/*%! @include b */").
 			Register("b", "/*%! @include a */")
 		if _, err := bisql.Parse("/*%! @include a */", bisql.WithLoader(ld)); err == nil || !strings.Contains(err.Error(), "cyclic") {
@@ -468,7 +468,7 @@ func TestInclude(t *testing.T) {
 	})
 
 	t.Run("unknown fragment errors", func(t *testing.T) {
-		if _, err := bisql.Parse("/*%! @include nope */", bisql.WithLoader(bisql.NewRegistry())); err == nil {
+		if _, err := bisql.Parse("/*%! @include nope */", bisql.WithLoader(bisql.NewRegistryLoader())); err == nil {
 			t.Error("expected unknown-fragment error")
 		}
 	})
@@ -488,21 +488,21 @@ func TestStackedLoader(t *testing.T) {
 	t.Run("falls through to a later loader", func(t *testing.T) {
 		// The FS lacks "frag.sql" (fs.ErrNotExist); the registry has it — the stack uses it.
 		fsys := fstest.MapFS{"other.sql": {Data: []byte("x")}}
-		reg := bisql.NewRegistry().Register("frag.sql", "name = /*name*/'x'")
+		reg := bisql.NewRegistryLoader().Register("frag.sql", "name = /*name*/'x'")
 		tmpl, err := bisql.Parse("where /*%! @include frag.sql */ 1 = 1",
 			pg, bisql.WithStackedLoader(bisql.NewFSLoader(fsys), reg))
 		if err != nil {
 			t.Fatal(err)
 		}
-		stmt, _ := tmpl.Build(map[string]any{"name": "SCOTT"})
+		stmt, _ := tmpl.Build(map[string]any{"name": "Alice"})
 		if stmt.SQL != "where name = $1 1 = 1" {
 			t.Errorf("SQL = %q", stmt.SQL)
 		}
 	})
 
 	t.Run("earlier loader wins", func(t *testing.T) {
-		first := bisql.NewRegistry().Register("f", "a = /*a*/0")
-		second := bisql.NewRegistry().Register("f", "b = /*b*/0")
+		first := bisql.NewRegistryLoader().Register("f", "a = /*a*/0")
+		second := bisql.NewRegistryLoader().Register("f", "b = /*b*/0")
 		tmpl, err := bisql.Parse("where /*%! @include f */", pg,
 			bisql.WithStackedLoader(first, second))
 		if err != nil {
@@ -516,7 +516,7 @@ func TestStackedLoader(t *testing.T) {
 
 	t.Run("not found in any yields ErrNotFound", func(t *testing.T) {
 		_, err := bisql.Parse("/*%! @include gone */",
-			bisql.WithStackedLoader(bisql.NewRegistry(), bisql.NewRegistry()))
+			bisql.WithStackedLoader(bisql.NewRegistryLoader(), bisql.NewRegistryLoader()))
 		if !errors.Is(err, bisql.ErrNotFound) {
 			t.Errorf("want ErrNotFound, got %v", err)
 		}
@@ -525,7 +525,7 @@ func TestStackedLoader(t *testing.T) {
 	t.Run("a non-not-found error aborts without falling through", func(t *testing.T) {
 		boom := errors.New("backend unavailable")
 		failing := bisql.LoaderFunc(func(string) (string, error) { return "", boom })
-		fallback := bisql.NewRegistry().Register("f", "1 = 1")
+		fallback := bisql.NewRegistryLoader().Register("f", "1 = 1")
 		_, err := bisql.Parse("/*%! @include f */",
 			bisql.WithStackedLoader(failing, fallback))
 		if !errors.Is(err, boom) {
@@ -585,7 +585,7 @@ func TestInvalidParams(t *testing.T) {
 func TestNewParserReuse(t *testing.T) {
 	p := bisql.NewParser(
 		bisql.WithDialect(dialect.PostgreSQL),
-		bisql.WithLoader(bisql.NewRegistry().Register("f", "name = /*name*/'x'")),
+		bisql.WithLoader(bisql.NewRegistryLoader().Register("f", "name = /*name*/'x'")),
 	)
 	t1, err := p.Parse("where a = /*a*/0 and b = /*b*/0")
 	if err != nil {
@@ -599,7 +599,7 @@ func TestNewParserReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s2, _ := t2.Build(map[string]any{"name": "SCOTT"})
+	s2, _ := t2.Build(map[string]any{"name": "Alice"})
 	if s2.SQL != "where name = $1 1 = 1" {
 		t.Errorf("t2 SQL = %q", s2.SQL)
 	}
@@ -608,11 +608,11 @@ func TestNewParserReuse(t *testing.T) {
 // SQLWithArgs is computed on demand and empty when there are no binds.
 func TestSQLWithArgsLazy(t *testing.T) {
 	tmpl, _ := bisql.Parse("select id from t where id in /*ids*/(0) and name = /*name*/'x'")
-	stmt, err := tmpl.Build(map[string]any{"ids": []any{1, 2}, "name": "SCOTT"})
+	stmt, err := tmpl.Build(map[string]any{"ids": []any{1, 2}, "name": "Alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := stmt.SQLWithArgs(); got != "select id from t where id in (1, 2) and name = 'SCOTT'" {
+	if got := stmt.SQLWithArgs(); got != "select id from t where id in (1, 2) and name = 'Alice'" {
 		t.Errorf("SQLWithArgs = %q", got)
 	}
 	// No binds: SQLWithArgs is just the SQL.
@@ -631,7 +631,7 @@ func TestParseFileExplicitLoaderPrecedence(t *testing.T) {
 	fsys := fstest.MapFS{
 		"root.sql": {Data: []byte("where 1 = 1 /*%! @include frag */")},
 	}
-	p := bisql.NewParser(bisql.WithLoader(bisql.NewRegistry().Register("frag", "and 1 = 1")))
+	p := bisql.NewParser(bisql.WithLoader(bisql.NewRegistryLoader().Register("frag", "and 1 = 1")))
 	tmpl, err := p.ParseFile(fsys, "root.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -649,27 +649,27 @@ func TestParseFileExplicitLoaderPrecedence(t *testing.T) {
 // @include fragments from the same fs.FS. This mirrors the README synopsis.
 func TestParseFile(t *testing.T) {
 	fsys := fstest.MapFS{
-		"employees/search.sql": {Data: []byte(
-			"select emp_no, name\nfrom employees\nwhere 1 = 1\n" +
-				"/*%if name != null*/and name = /*name*/'SCOTT'/*%end*/\n" +
-				"/*%! @include employees/_active.sql */\n" +
-				"order by emp_no")},
-		"employees/_active.sql": {Data: []byte(
-			"/*%if activeOnly*/and retired = /*zero*/0/*%end*/")},
+		"users/search.sql": {Data: []byte(
+			"select id, name\nfrom users\nwhere 1 = 1\n" +
+				"/*%if name != null*/and name = /*name*/'Alice'/*%end*/\n" +
+				"/*%! @include users/_active.sql */\n" +
+				"order by id")},
+		"users/_active.sql": {Data: []byte(
+			"/*%if activeOnly*/and status = /*status*/'active'/*%end*/")},
 	}
-	tmpl, err := bisql.ParseFile(fsys, "employees/search.sql", bisql.WithDialect(dialect.PostgreSQL))
+	tmpl, err := bisql.ParseFile(fsys, "users/search.sql", bisql.WithDialect(dialect.PostgreSQL))
 	if err != nil {
 		t.Fatal(err)
 	}
-	stmt, err := tmpl.Build(map[string]any{"name": "SCOTT", "activeOnly": true, "zero": 0})
+	stmt, err := tmpl.Build(map[string]any{"name": "Alice", "activeOnly": true, "status": "active"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "select emp_no, name\nfrom employees\nwhere 1 = 1\nand name = $1\nand retired = $2\norder by emp_no"
+	want := "select id, name\nfrom users\nwhere 1 = 1\nand name = $1\nand status = $2\norder by id"
 	if stmt.SQL != want {
 		t.Errorf("SQL\n got: %q\nwant: %q", stmt.SQL, want)
 	}
-	if !reflect.DeepEqual(stmt.Args, []any{"SCOTT", 0}) {
+	if !reflect.DeepEqual(stmt.Args, []any{"Alice", "active"}) {
 		t.Errorf("Args = %#v", stmt.Args)
 	}
 
@@ -679,11 +679,11 @@ func TestParseFile(t *testing.T) {
 	}
 
 	// ExpandFile returns the still-two-way text with the fragment spliced in.
-	expanded, err := bisql.ExpandFile(fsys, "employees/search.sql")
+	expanded, err := bisql.ExpandFile(fsys, "users/search.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(expanded, "/*%if activeOnly*/and retired = /*zero*/0/*%end*/") {
+	if !strings.Contains(expanded, "/*%if activeOnly*/and status = /*status*/'active'/*%end*/") {
 		t.Errorf("ExpandFile did not splice the fragment:\n%s", expanded)
 	}
 }
