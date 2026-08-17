@@ -509,7 +509,15 @@ bisql expand --include-root sql --out-dir gen
 //go:generate bisql expand --include-root sql --out-dir gen
 ```
 
-Files without an `@include` mirror unchanged, so `gen/` is `sql/` with includes resolved.
+Files without an `@include` mirror unchanged, so `gen/` is `sql/` with includes resolved. To
+keep fragment files out of the output while still allowing them to be `@include`d, pass
+`--exclude` (`-x`, repeatable). A slashless pattern matches the base name at any depth; a
+pattern with a slash matches the whole path (`**` spans directories):
+
+```sh
+bisql expand --include-root sql --out-dir gen --exclude '_*.sql' --exclude 'partials/**'
+```
+
 `--output`/`-o` and `--out-dir`/`-O` are mutually exclusive, and `--include-root` is `-r`.
 Expansion exits non-zero on an unresolved include, so a run also validates; for drift, use git:
 

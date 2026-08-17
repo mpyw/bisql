@@ -108,6 +108,40 @@ func TestTree_MirrorsRoot(t *testing.T) {
 	}
 }
 
+func TestTree_Exclude(t *testing.T) {
+	root, _ := fixture(t)
+	writeTree(t, root, map[string]string{
+		"employees/list.sql":  "select 1 /*%! @include employees/_active.sql */",
+		"partials/shared.sql": "and 1 = 1",
+	})
+	outDir := filepath.Join(t.TempDir(), "gen")
+
+	var out strings.Builder
+	// Exclude fragments by underscore base name (slashless -> base at any depth) and a whole
+	// directory (slash -> full path).
+	opts := expandOptions{root: root, outDir: outDir, exclude: []string{"_*.sql", "partials/**"}}
+	if err := runExpand(opts, nil, &out); err != nil {
+		t.Fatalf("runExpand: %v", err)
+	}
+	// Entry templates are emitted; the excluded fragment and directory are not.
+	mustExist := []string{"employees/search.sql", "employees/list.sql"}
+	mustNotExist := []string{"employees/_active.sql", "partials/shared.sql"}
+	for _, rel := range mustExist {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+			t.Errorf("expected %s to be emitted: %v", rel, err)
+		}
+	}
+	for _, rel := range mustNotExist {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); err == nil {
+			t.Errorf("expected %s to be excluded from the output", rel)
+		}
+	}
+	// The excluded fragment is still resolvable: list.sql's include expanded.
+	if got := readFile(t, filepath.Join(outDir, "employees/list.sql")); got != "select 1 "+fragActive {
+		t.Errorf("list.sql did not resolve its excluded include: %q", got)
+	}
+}
+
 // --- errors ---
 
 func TestExpand_Errors(t *testing.T) {
@@ -124,6 +158,7 @@ func TestExpand_Errors(t *testing.T) {
 		{"missing input file", expandOptions{root: root, inputs: []string{filepath.Join(root, "nope.sql")}}},
 		{"missing include (filter)", expandOptions{root: root, inputs: []string{filepath.Join(root, "broken.sql")}}},
 		{"missing include (tree)", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen")}},
+		{"invalid exclude pattern", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), exclude: []string{"[bad"}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
