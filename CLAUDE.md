@@ -84,9 +84,10 @@ token/ast types must not leak through the public API.
 
 The `bisql` CLI lives in `cmd/bisql`, which is a **separate Go module** (`cmd/bisql/go.mod`,
 with `replace github.com/mpyw/bisql => ../..`) so its `urfave/cli` dependency stays out of the
-library's module graph — the library keeps its single dependency. `mise run check` runs every
-Go task in both modules (`for d in . cmd/bisql`); `./...` from the root does not reach the
-submodule.
+library's module graph — the library keeps its single dependency. A root `go.work` joins both
+modules so workspace-aware commands work from the repo root (e.g. `go run ./cmd/bisql`); note
+that `go build ./...` from the root still covers only the library, so `mise run check` runs
+every Go task in both modules (`for d in . cmd/bisql`).
 
 ## Coding rules
 
