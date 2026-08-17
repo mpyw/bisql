@@ -32,6 +32,10 @@ run = 'for d in . cmd/bisql; do (cd "$d" && deadcode -test ./...) || exit 1; don
 description = "Run tests with the race detector"
 run = 'for d in . cmd/bisql; do (cd "$d" && go test -race ./...) || exit 1; done'
 
+[tasks.cover]
+description = "Write a holistic coverage profile (coverage.out) per module"
+run = 'for d in . cmd/bisql; do (cd "$d" && go test -coverpkg=./... -covermode=atomic -coverprofile=coverage.out ./...) || exit 1; done'
+
 [tasks.check]
 description = "Full gate: fmt, build, vet, lint, deadcode, test"
 depends = ["fmt", "build", "vet", "lint", "deadcode", "test"]

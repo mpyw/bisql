@@ -19,3 +19,19 @@ jobs:
       # Installs the pinned toolchain (go, golangci-lint, deadcode) from mise.toml, then
       # runs the full gate: fmt, build, vet, lint, deadcode, test -race.
       - run: mise run check
+      # Coverage: one holistic profile per module (coverage.out, cmd/bisql/coverage.out).
+      - run: mise run cover
+      - name: Upload library coverage
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.out
+          flags: library
+          fail_ci_if_error: false
+      - name: Upload CLI coverage
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./cmd/bisql/coverage.out
+          flags: cli
+          fail_ci_if_error: false

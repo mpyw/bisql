@@ -1,5 +1,9 @@
 # bisql
 
+[![CI](https://github.com/mpyw/bisql/actions/workflows/ci.yml/badge.svg)](https://github.com/mpyw/bisql/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/mpyw/bisql/graph/badge.svg)](https://codecov.io/gh/mpyw/bisql)
+[![Go Reference](https://pkg.go.dev/badge/github.com/mpyw/bisql.svg)](https://pkg.go.dev/github.com/mpyw/bisql)
+
 **A two-way SQL template engine for Go.** Directives are expressed as SQL comments, so a
 template remains executable without modification in a SQL client, while an application
 converts the same text into a parameterized statement `(SQL, Args)`. The directive syntax is
