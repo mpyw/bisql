@@ -486,6 +486,34 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
 ```
 
+The same step is available from the command line as `bisql expand`, which is convenient for
+committing expanded snapshots and for `go generate`. Input paths and `@include` names resolve
+under `-root`:
+
+```sh
+# one file to stdout
+bisql expand -root sql employees/search.sql
+
+# a whole tree, mirrored into another directory
+bisql expand -root sql -o generated sql
+
+# rewrite each file in place, and verify in CI that they are up to date
+bisql expand -root sql -w sql
+bisql expand -root sql --check sql   # exits non-zero on drift
+```
+
+Inputs may be files, globs, directories (walked recursively for `*.sql`), or `-` for stdin.
+Output goes to stdout (single input), a file (`-o file`), a mirrored directory (`-o dir`), or
+back to each input (`-w`); `--check` writes nothing and fails on drift. A typical generator
+directive is:
+
+```go
+//go:generate bisql expand -root sql -w sql
+```
+
+The command lives in its own module so the library keeps its single dependency; install it
+with `go install github.com/mpyw/bisql/cmd/bisql@latest`.
+
 ## Authoring rules
 
 Because the engine removes nothing implicitly, a template author observes the following rules.
@@ -618,11 +646,15 @@ bisql            Public API: NewParser, Parser, Parse, ParseFile, Expand, Expand
 dialect/         Dialect definitions: placeholder generation and literal formatting
                  (MySQL, PostgreSQL, Oracle, SQL Server).
 expr/            Evaluator interface and Scope (for custom evaluators).
+cmd/bisql/       The `bisql` CLI (own module; urfave/cli). Subcommand: expand.
 internal/
   sqltmpl/       Template layer: token, ast, lexer, parser, render, preprocess.
   exprlang/      Default evaluator (expr-lang).
 docs/design.md   Design rationale for the explicit model.
 ```
+
+The CLI is a separate Go module (`cmd/bisql/go.mod`) so its `urfave/cli` dependency does not
+enter the library's module graph; the library itself depends only on `expr-lang`.
 
 ## Development
 

@@ -82,6 +82,12 @@ internal/
 Public sub-packages sit at the top level (`dialect`, `expr`) — no `pkg/`. Internal
 token/ast types must not leak through the public API.
 
+The `bisql` CLI lives in `cmd/bisql`, which is a **separate Go module** (`cmd/bisql/go.mod`,
+with `replace github.com/mpyw/bisql => ../..`) so its `urfave/cli` dependency stays out of the
+library's module graph — the library keeps its single dependency. `mise run check` runs every
+Go task in both modules (`for d in . cmd/bisql`); `./...` from the root does not reach the
+submodule.
+
 ## Coding rules
 
 - Prefer the standard library. The one deliberate dependency is `github.com/expr-lang/expr`

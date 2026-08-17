@@ -1,0 +1,43 @@
+// Command bisql is a command-line front end to the bisql two-way SQL template engine.
+//
+// It currently provides one subcommand:
+//
+//	bisql expand   resolve /*%! @include ... */ directives, printing the expanded two-way SQL
+//
+// A future release will add `bisql render`, which additionally evaluates the SQL directives
+// against a set of parameters to produce the final statement.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/urfave/cli/v3"
+)
+
+func main() {
+	cmd := &cli.Command{
+		Name:  "bisql",
+		Usage: "two-way SQL template tool",
+		Commands: []*cli.Command{
+			expandCommand(),
+		},
+	}
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		// A quiet-exit error carries its own already-printed diagnostics (e.g. --check drift);
+		// anything else is reported here.
+		var quiet quietExit
+		if !errors.As(err, &quiet) {
+			fmt.Fprintln(os.Stderr, "bisql:", err)
+		}
+		os.Exit(1)
+	}
+}
+
+// quietExit signals a non-zero exit whose message has already been written to the command's
+// error stream, so main should not print it again.
+type quietExit struct{}
+
+func (quietExit) Error() string { return "exit status 1" }
