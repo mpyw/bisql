@@ -88,6 +88,11 @@ func TestArrayBind(t *testing.T) {
 	if len(stmt.Args) != 1 || !reflect.DeepEqual(stmt.Args[0], []any{"2020-01-01", "2020-02-02"}) {
 		t.Errorf("Args got %#v (want a single array arg)", stmt.Args)
 	}
+	// The values-embedded review form renders the array as a PostgreSQL array literal — valid
+	// PostgreSQL, not a Go %v dump.
+	if got, want := stmt.SQLWithArgs(), `where ts = ANY('{"2020-01-01","2020-02-02"}'::timestamptz[])`; got != want {
+		t.Errorf("SQLWithArgs\n got: %q\nwant: %q", got, want)
+	}
 }
 
 func TestLiteral(t *testing.T) {
