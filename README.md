@@ -162,7 +162,10 @@ trailing `literal` (the two-way sample value, ignored at build time).
 
 ```sql
 where name = /*name*/'SCOTT'
--- name = "SCOTT"  →  where name = $1   ($1 = "SCOTT")
+
+-- name = "SCOTT"
+--   →  where name = $1
+--      ($1 = "SCOTT")
 ```
 
 </td>
@@ -183,7 +186,9 @@ injection-prone.
 
 ```sql
 limit /*^n*/10
--- n = 50  →  limit 50
+
+-- n = 50
+--   →  limit 50
 ```
 
 </td>
@@ -209,8 +214,12 @@ branch if none is; the other branches are omitted.
 
 ```sql
 where 1 = 1 /*%if minAge != null*/and age >= /*minAge*/0/*%end*/
--- minAge = 20   →  where 1 = 1 and age >= $1
--- minAge = nil  →  where 1 = 1
+
+-- minAge = 20
+--   →  where 1 = 1 and age >= $1
+--      ($1 = 20)
+-- minAge = nil
+--   →  where 1 = 1
 ```
 
 </td>
@@ -224,11 +233,11 @@ where 1 = 1 /*%if minAge != null*/and age >= /*minAge*/0/*%end*/
 /*%end*/
 ```
 
-An optional `: 'sep'` clause emits `sep` between iterations:
+An optional separator (typically a comma), emitted between iterations:
 
 ```sql
-/*%for x in xs : 'sep'*/
-    -- body; 'sep' is emitted between iterations
+/*%for x in xs : ','*/
+    -- body
 /*%end*/
 ```
 
@@ -240,7 +249,10 @@ clause keeps an anchorless list (a multi-row `VALUES`) two-way.
 
 ```sql
 insert into t (a) values /*%for x in xs : ', '*/(/*x*/0)/*%end*/
--- xs = [1, 2]  →  ... values ($1), ($2)
+
+-- xs = [1, 2]
+--   →  insert into t (a) values ($1), ($2)
+--      ($1 = 1, $2 = 2)
 ```
 
 </td>
