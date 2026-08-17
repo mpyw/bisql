@@ -233,7 +233,8 @@ where 1 = 1 /*%if minAge != null*/and age >= /*minAge*/0/*%end*/
 /*%end*/
 ```
 
-An optional separator (typically a comma), emitted between iterations:
+An optional separator, emitted between iterations
+(typically a comma):
 
 ```sql
 /*%for x in xs : ','*/
