@@ -257,6 +257,83 @@ func TestRender_EvaluatorErrorPropagates(t *testing.T) {
 	}
 }
 
+// M1: a literal's expression evaluation error surfaces from Render (visitLiteral).
+func TestRender_LiteralEvalErrorPropagates(t *testing.T) {
+	n, err := parser.Parse("/*^v*/'x'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = render.Render(n, expr.Scope{}, render.Config{Evaluator: evalErr{}, Placeholder: qmark, Literal: litFn})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "evaluating") {
+		t.Errorf("error %q does not mention evaluating", err)
+	}
+}
+
+// M2: an /*%if*/ condition evaluation error surfaces from Render (evalBool).
+func TestRender_IfConditionEvalErrorPropagates(t *testing.T) {
+	n, err := parser.Parse("/*%if flag*/x/*%end*/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = render.Render(n, expr.Scope{}, render.Config{Evaluator: evalErr{}, Placeholder: qmark, Literal: litFn})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "evaluating") {
+		t.Errorf("error %q does not mention evaluating", err)
+	}
+}
+
+// M3: a /*%for*/ iterable expression evaluation error surfaces from Render (visitFor).
+func TestRender_ForExprEvalErrorPropagates(t *testing.T) {
+	n, err := parser.Parse("/*%for i in xs*/Y/*%end*/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = render.Render(n, expr.Scope{}, render.Config{Evaluator: evalErr{}, Placeholder: qmark, Literal: litFn})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "evaluating") {
+		t.Errorf("error %q does not mention evaluating", err)
+	}
+}
+
+// selEval evaluates each key independently: keys mapping to a non-nil value return it, keys
+// mapping to nil return an error. It stands in for an evaluator that succeeds on the leading
+// /*%if*/ condition (boolean false) yet fails on a later /*%elseif*/ condition.
+type selEval map[string]any
+
+func (s selEval) Eval(expression string, _ expr.Scope) (any, error) {
+	if v, ok := s[expression]; ok {
+		if v == nil {
+			return nil, fmt.Errorf("boom: %s", expression)
+		}
+		return v, nil
+	}
+	return nil, nil
+}
+
+// M4: an /*%elseif*/ condition error is not swallowed by chooseBranch — the leading if is a
+// clean boolean false (not an error), so evaluation proceeds to the elseif, which errors.
+func TestRender_ElseifConditionEvalErrorPropagates(t *testing.T) {
+	n, err := parser.Parse("/*%if a*/A/*%elseif b*/B/*%end*/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a -> boolean false (falsy, not an error); b -> nil which selEval turns into an error.
+	_, err = render.Render(n, expr.Scope{}, render.Config{Evaluator: selEval{"a": false, "b": nil}, Placeholder: qmark, Literal: litFn})
+	if err == nil {
+		t.Fatal("expected an error from the elseif condition")
+	}
+	if !strings.Contains(err.Error(), "evaluating") {
+		t.Errorf("error %q does not mention evaluating", err)
+	}
+}
+
 // A literal-formatter error surfaces from Render wrapped with the "literal" context.
 func TestRender_LiteralFormatterErrorWraps(t *testing.T) {
 	litErr := func(any) (string, error) { return "", fmt.Errorf("bad value") }

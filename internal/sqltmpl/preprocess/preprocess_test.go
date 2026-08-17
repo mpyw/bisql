@@ -96,6 +96,54 @@ func TestExpand_NonIncludeUntouched(t *testing.T) {
 	}
 }
 
+// H1: a doubled-quote (”) inside a string literal is an escaped quote, not the string's
+// close, so the scanner keeps skipping until the real close — and the directive that follows
+// the string still expands.
+func TestExpand_DoubledQuoteEscape(t *testing.T) {
+	got, err := preprocess.Expand("'can''t' /*%! @include f */", res(map[string]string{"f": "X"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "'can''t' X" {
+		t.Errorf("got %q, want %q", got, "'can''t' X")
+	}
+}
+
+// H2: an unterminated string literal consumes to the end of the input, so a directive inside
+// the still-open string is never seen — the input is returned verbatim and the resolver is
+// never called.
+func TestExpand_UnterminatedString(t *testing.T) {
+	src := "SELECT 'oops /*%! @include f */"
+	called := false
+	resolve := func(name string) (string, error) {
+		called = true
+		return "X", nil
+	}
+	got, err := preprocess.Expand(src, resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != src {
+		t.Errorf("got %q, want verbatim %q", got, src)
+	}
+	if called {
+		t.Error("resolver must not be called for a directive inside an open string")
+	}
+}
+
+// H3: an unterminated block comment is left as-is (the lexer reports it later), so Expand
+// returns the input verbatim with no error.
+func TestExpand_UnterminatedBlockComment(t *testing.T) {
+	src := "SELECT 1 /* dangling"
+	got, err := preprocess.Expand(src, res(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != src {
+		t.Errorf("got %q, want verbatim %q", got, src)
+	}
+}
+
 func TestExpand_NameErrors(t *testing.T) {
 	for _, src := range []string{
 		"/*%! @include */",     // missing name
