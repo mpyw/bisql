@@ -486,6 +486,63 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
 ```
 
+Available on the command line as `bisql expand`. `@include` names resolve under
+`--include-root`, identically to the library's `FSLoader`. There are two modes.
+
+**Filter mode** — one template (a file or standard input) to standard output, or `--output`:
+
+```sh
+bisql expand --include-root sql sql/employees/search.sql              # to stdout
+bisql expand --include-root sql -o gen/search.sql sql/employees/search.sql
+cat sql/employees/search.sql | bisql expand --include-root sql -
+```
+
+**Tree mode** (`--out-dir`) — expand the `*.sql` files under `--include-root` in one process,
+writing the results into the output directory. This is the form for `go generate`, so a
+directory costs one process, not one per file:
+
+```sh
+bisql expand --include-root sql --out-dir gen            # every *.sql, mirrored to gen/
+```
+
+```go
+//go:generate bisql expand --include-root sql --out-dir gen
+```
+
+Positional arguments are input globs (relative to `--include-root`, matched by the tool, so
+`**` works from `go generate` without a shell); with none, every `*.sql` file is expanded.
+`--exclude` (`-x`, repeatable) then removes files from the output while they remain
+`@include`able. In a glob, a slashless pattern matches the base name at any depth, and a
+pattern with a slash matches the whole path.
+
+`--out-name-format` is a [Go template](https://pkg.go.dev/text/template) that names each output
+relative to `--out-dir`; it defaults to `{{.Path}}` (mirror the input tree). The fields, for an
+input of `employees/search.sql`, are:
+
+| Field    | Value                    |
+|:---------|:-------------------------|
+| `.Path`  | `employees/search.sql`   |
+| `.Dir`   | `employees`              |
+| `.Base`  | `search.sql`             |
+| `.Name`  | `search`                 |
+| `.Ext`   | `.sql`                   |
+
+```sh
+# select one directory, drop fragments, and rename search.sql -> search.gen.sql (tree kept)
+bisql expand --include-root sql --out-dir gen \
+    --exclude '_*.sql' --out-name-format '{{.Dir}}/{{.Name}}.gen.sql' 'employees/*.sql'
+```
+
+`--output`/`-o` and `--out-dir`/`-O` are mutually exclusive, and `--include-root` is `-r`.
+Expansion exits non-zero on an unresolved include, so a run also validates; for drift, use git:
+
+```sh
+bisql expand --include-root sql --out-dir gen && git diff --exit-code gen
+```
+
+The command is a separate module, so the library keeps its single dependency; install it with
+`go install github.com/mpyw/bisql/cmd/bisql@latest`.
+
 ## Authoring rules
 
 Because the engine removes nothing implicitly, a template author observes the following rules.
@@ -618,11 +675,15 @@ bisql            Public API: NewParser, Parser, Parse, ParseFile, Expand, Expand
 dialect/         Dialect definitions: placeholder generation and literal formatting
                  (MySQL, PostgreSQL, Oracle, SQL Server).
 expr/            Evaluator interface and Scope (for custom evaluators).
+cmd/bisql/       The `bisql` CLI (own module; urfave/cli). Subcommand: expand.
 internal/
   sqltmpl/       Template layer: token, ast, lexer, parser, render, preprocess.
   exprlang/      Default evaluator (expr-lang).
 docs/design.md   Design rationale for the explicit model.
 ```
+
+The CLI is a separate Go module (`cmd/bisql/go.mod`) so its `urfave/cli` dependency does not
+enter the library's module graph; the library itself depends only on `expr-lang`.
 
 ## Development
 

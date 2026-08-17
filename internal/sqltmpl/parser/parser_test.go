@@ -1,9 +1,10 @@
-package parser
+package parser_test
 
 import (
 	"testing"
 
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
+	"github.com/mpyw/bisql/internal/sqltmpl/parser"
 )
 
 // The tree is lossless: Text() reproduces the input, except parser comments (/*%!) and a
@@ -34,9 +35,9 @@ func TestParse_Lossless(t *testing.T) {
 		"select `a`, \"b\", 'c/*x*/' from t",
 	}
 	for _, src := range cases {
-		n, err := Parse(src)
+		n, err := parser.Parse(src)
 		if err != nil {
-			t.Errorf("Parse(%q): %v", src, err)
+			t.Errorf("parser.Parse(%q): %v", src, err)
 			continue
 		}
 		if got := n.Text(); got != src {
@@ -46,7 +47,7 @@ func TestParse_Lossless(t *testing.T) {
 }
 
 func TestParse_ParserCommentAndDelimiterDropped(t *testing.T) {
-	n, err := Parse("select 1 /*%! note */ from t; select 2")
+	n, err := parser.Parse("select 1 /*%! note */ from t; select 2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +59,7 @@ func TestParse_ParserCommentAndDelimiterDropped(t *testing.T) {
 func TestParse_Structure(t *testing.T) {
 	// Note: a bind directive folds any following nodes into its Trailing until a reduce
 	// boundary, so put the if-block first to keep both at the top level.
-	n, err := Parse("/*%if p*/y/*%end*/ /*a*/'v'")
+	n, err := parser.Parse("/*%if p*/y/*%end*/ /*a*/'v'")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestParse_Structure(t *testing.T) {
 
 // A bind's paren test literal parses as a Paren (this drives IN-list expansion at render).
 func TestParse_ParenTest(t *testing.T) {
-	n, _ := Parse("id in /*ids*/(1, 2)")
+	n, _ := parser.Parse("id in /*ids*/(1, 2)")
 	st := n.(ast.Statement)
 	for _, c := range st.Nodes {
 		if b, ok := c.(ast.BindValue); ok {
@@ -112,7 +113,7 @@ func TestParse_Errors(t *testing.T) {
 		"select /*%for x*/y/*%end*/",      // for without "in"
 		"select /*a*/ from t",             // a space (not a Word/Paren) follows the bind: no test literal
 	} {
-		if _, err := Parse(src); err == nil {
+		if _, err := parser.Parse(src); err == nil {
 			t.Errorf("expected error for %q", src)
 		}
 	}

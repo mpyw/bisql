@@ -1,8 +1,10 @@
-package parser
+package parser_test
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/mpyw/bisql/internal/sqltmpl/parser"
 )
 
 var seeds = []string{
@@ -25,7 +27,7 @@ func FuzzParse(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, src string) {
-		node, err := Parse(src)
+		node, err := parser.Parse(src)
 		if err != nil {
 			return // rejecting malformed input is fine; it must not panic
 		}
