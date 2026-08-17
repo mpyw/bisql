@@ -157,7 +157,12 @@ These directives are evaluated during rendering and produce the SQL and its argu
 </td>
 <td>
 
-**Bind.** Emits a placeholder and binds the value of `expr` as an argument, replacing the trailing `literal`. That `literal` is the two-way sample value, used only when the raw template is run in a client and ignored at build time.
+**Bind.** Emits a placeholder and binds the value of `expr` as an argument, replacing the trailing `literal` (the two-way sample value, ignored at build time).
+
+```sql
+where name = /*name*/'SCOTT'
+-- name = "SCOTT"  →  where name = $1   ($1 = "SCOTT")
+```
 
 </td>
 </tr>
@@ -171,7 +176,12 @@ These directives are evaluated during rendering and produce the SQL and its argu
 </td>
 <td>
 
-**Literal.** Inlines the value of `expr` into the SQL as a formatted literal, replacing the trailing `literal`, instead of binding it. For trusted values that cannot be parameterized (for example, DDL); injection-prone.
+**Literal.** Inlines the value of `expr` as a formatted SQL literal, replacing the trailing `literal`, instead of binding it. For trusted values that cannot be parameterized; injection-prone.
+
+```sql
+limit /*^n*/10
+-- n = 50  →  limit 50
+```
 
 </td>
 </tr>
@@ -193,6 +203,12 @@ These directives are evaluated during rendering and produce the SQL and its argu
 
 **Conditional.** Renders the first branch whose condition is true, or the `/*%else*/` branch if none is; the other branches are omitted.
 
+```sql
+where 1 = 1 /*%if minAge != null*/and age >= /*minAge*/0/*%end*/
+-- minAge = 20   →  where 1 = 1 and age >= $1
+-- minAge = nil  →  where 1 = 1
+```
+
 </td>
 </tr>
 <tr>
@@ -204,10 +220,23 @@ These directives are evaluated during rendering and produce the SQL and its argu
 /*%end*/
 ```
 
+An optional `: 'sep'` clause emits `sep` between iterations:
+
+```sql
+/*%for x in xs : 'sep'*/
+    -- body; 'sep' is emitted between iterations
+/*%end*/
+```
+
 </td>
 <td>
 
-**Iteration.** Renders the body once for each element of `xs`, bound to `x`. An optional `: 'sep'` clause (`/*%for x in xs : ', '*/`) emits `sep` between iterations.
+**Iteration.** Renders the body once for each element of `xs`, bound to `x`. The separator clause keeps an anchorless list (a multi-row `VALUES`) two-way.
+
+```sql
+insert into t (a) values /*%for x in xs : ', '*/(/*x*/0)/*%end*/
+-- xs = [1, 2]  →  ... values ($1), ($2)
+```
 
 </td>
 </tr>
@@ -233,7 +262,12 @@ These directives share the `/*%! … */` channel and are resolved before lexing.
 </td>
 <td>
 
-**Include.** Splices the named fragment's text before lexing (see [Fragment inclusion](#fragment-inclusion)).
+**Include.** Splices the named fragment's text in place before lexing (see [Fragment inclusion](#fragment-inclusion)).
+
+```sql
+where 1 = 1 /*%! @include filters/active.sql */
+-- → where 1 = 1 <text of filters/active.sql>
+```
 
 </td>
 </tr>
@@ -247,7 +281,12 @@ These directives share the `/*%! … */` channel and are resolved before lexing.
 </td>
 <td>
 
-**Parser comment.** Removed from the output; carries no SQL.
+**Parser comment.** Removed from the output entirely; carries no SQL.
+
+```sql
+select 1 /*%! TODO: drop this column */ from t
+-- → select 1  from t
+```
 
 </td>
 </tr>
