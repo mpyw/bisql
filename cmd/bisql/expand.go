@@ -35,7 +35,13 @@ func expandCommand() *cli.Command {
 			&cli.StringFlag{Name: "include-root", Aliases: []string{"r"}, Value: ".", Usage: "Base `directory` for @include resolution, and the tree-mode source tree"},
 			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "Filter mode: write to `file` instead of standard output"},
 			&cli.StringFlag{Name: "out-dir", Aliases: []string{"O"}, Usage: "Tree mode: write the expanded tree into `directory`"},
-			&cli.StringFlag{Name: "out-name-format", Value: "{{.Path}}", Usage: "Tree mode: Go `template` naming each output relative to --out-dir. Fields for employees/search.sql — .Path=employees/search.sql .Dir=employees .Base=search.sql .Name=search .Ext=.sql"},
+			&cli.StringFlag{Name: "out-name-format", Value: "{{.Path}}", Usage: "Tree mode: Go `template` for each output path, relative to --out-dir. Fields for employees/search.sql:\n" +
+				"  .Path = employees/search.sql\n" +
+				"  .Dir  = employees\n" +
+				"  .Base = search.sql\n" +
+				"  .Name = search\n" +
+				"  .Ext  = .sql\n" +
+				"The default mirrors the input tree."},
 			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"x"}, Usage: "Tree mode: omit files matching `glob` from the output (repeatable; still @includable). A slashless glob matches the base name at any depth"},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
