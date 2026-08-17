@@ -84,6 +84,54 @@ func runGolden(t *testing.T, template string, cases []goldenCase) {
 
 func pg() []bisql.Option { return []bisql.Option{bisql.WithDialect(dialect.PostgreSQL)} }
 
+// runGoldenInclude drives an @include-based scenario end to end. The template tree lives under
+// testdata/e2e/<template>/ (input.sql + fragment files under _frag/). It checks both paths:
+//
+//   - expand:  bisql.ExpandFile resolves every @include into one still-two-way SQL golden
+//     (expanded.sql), dialect-independent.
+//   - render:  bisql.ParseFile + Build produces the final (SQL, Args) per case golden.
+func runGoldenInclude(t *testing.T, template, root string, cases []goldenCase) {
+	t.Helper()
+	dir := e2eDir(template)
+	fsys := os.DirFS(dir)
+
+	expanded, err := bisql.ExpandFile(fsys, root)
+	if err != nil {
+		t.Fatalf("expand: %v", err)
+	}
+	checkGolden(t, filepath.Join(dir, "expanded.sql"), expanded)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tmpl, err := bisql.ParseFile(fsys, root, c.opts...)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			stmt, err := tmpl.Build(c.params)
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			if !reflect.DeepEqual(stmt.Args, c.args) {
+				t.Errorf("Args\n got: %#v\nwant: %#v", stmt.Args, c.args)
+			}
+			checkGolden(t, filepath.Join(dir, c.name+".output.sql"), stmt.SQL)
+			if c.embedded {
+				checkGolden(t, filepath.Join(dir, c.name+".embedded.sql"), stmt.SQLWithArgs())
+			}
+		})
+	}
+}
+
+// @include end to end (recursive: input -> _frag/active -> _frag/dept), checking both the
+// expanded two-way text and the rendered (SQL, Args) across dialects and branch selections.
+func TestE2EInclude(t *testing.T) {
+	runGoldenInclude(t, "include_search", "input.sql", []goldenCase{
+		{name: "pg_all", opts: pg(), params: map[string]any{"activeOnly": true, "zero": 0, "dept": 10, "name": "SCOTT"}, args: []any{0, 10, "SCOTT"}, embedded: true},
+		{name: "pg_name_only", opts: pg(), params: map[string]any{"name": "SCOTT"}, args: []any{"SCOTT"}},
+		{name: "mysql_none", params: map[string]any{}},
+	})
+}
+
 func TestE2EDynamicWhere(t *testing.T) {
 	runGolden(t, "dynamic_where", []goldenCase{
 		{name: "all_set", params: map[string]any{"name": "SCOTT", "age": 20, "ids": []any{1, 2, 3}}, args: []any{"SCOTT", 20, 1, 2, 3}, embedded: true},
