@@ -95,6 +95,22 @@ func TestArrayBind(t *testing.T) {
 	}
 }
 
+// When the dialect's literal formatter cannot format a bound value (here MySQL's default
+// FormatLiteral facing a slice), SQLWithArgs falls back to Go's %v dump rather than failing.
+// The bind is a scalar-shaped placeholder, so the whole slice binds as one argument.
+func TestSQLWithArgsFallback(t *testing.T) {
+	run(t, []buildCase{
+		{
+			name:     "mysql slice value falls back to %v",
+			tmpl:     "where ts = ANY(/*ts*/'{}'::x[])",
+			params:   map[string]any{"ts": []any{"a", "b"}},
+			sql:      "where ts = ANY(?::x[])",
+			args:     []any{[]any{"a", "b"}},
+			withArgs: "where ts = ANY([a b]::x[])",
+		},
+	})
+}
+
 func TestLiteral(t *testing.T) {
 	run(t, []buildCase{
 		{name: "int", tmpl: "where a = /*^v*/'x' and b > 1", params: map[string]any{"v": 42}, sql: "where a = 42 and b > 1"},
@@ -299,6 +315,69 @@ func TestStructParams(t *testing.T) {
 	// pointer works too
 	if _, err := tmpl.Build(&Query{Name: "x"}); err != nil {
 		t.Errorf("pointer struct: %v", err)
+	}
+}
+
+// toScope accepts an expr.Scope directly (not only map[string]any or a struct), passing it
+// through unchanged.
+func TestScopeParams(t *testing.T) {
+	tmpl, err := bisql.Parse("where id = /*id*/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tmpl.Build(expr.Scope{"id": 7})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if stmt.SQL != "where id = ?" || !reflect.DeepEqual(stmt.Args, []any{7}) {
+		t.Errorf("SQL=%q Args=%#v", stmt.SQL, stmt.Args)
+	}
+}
+
+// A nil pointer as params is treated as an empty scope — no error, no panic. A template with
+// no field references then builds cleanly.
+func TestNilPointerParams(t *testing.T) {
+	tmpl, err := bisql.Parse("select 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p *struct{ X int }
+	stmt, err := tmpl.Build(p)
+	if err != nil {
+		t.Fatalf("nil pointer params should not error: %v", err)
+	}
+	if stmt.SQL != "select 1" || len(stmt.Args) != 0 {
+		t.Errorf("SQL=%q Args=%#v", stmt.SQL, stmt.Args)
+	}
+}
+
+// Fields of an embedded pointer-to-struct are promoted to their bare names, just like an
+// embedded value struct. A nil embedded pointer is simply skipped (no promoted fields, no
+// panic).
+func TestEmbeddedPointerPromotion(t *testing.T) {
+	type Base struct{ Name string }
+	type Row struct {
+		*Base
+		ID int
+	}
+	tmpl, err := bisql.Parse("where name = /*Name*/'?' and id = /*ID*/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tmpl.Build(Row{Base: &Base{Name: "x"}, ID: 1})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if !reflect.DeepEqual(stmt.Args, []any{"x", 1}) {
+		t.Errorf("Args got %#v (Name promoted from *Base?)", stmt.Args)
+	}
+	// A nil embedded pointer must not panic; a template without the promoted field builds fine.
+	plain, err := bisql.Parse("where id = /*ID*/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plain.Build(Row{ID: 2}); err != nil {
+		t.Errorf("nil embedded pointer: %v", err)
 	}
 }
 
@@ -541,6 +620,28 @@ func TestSQLWithArgsLazy(t *testing.T) {
 	ps, _ := plain.Build(nil)
 	if got := ps.SQLWithArgs(); got != ps.SQL {
 		t.Errorf("no-bind SQLWithArgs = %q, want %q", got, ps.SQL)
+	}
+}
+
+// ParseFile reads the root from the fs.FS but, when the parser already has an explicit loader,
+// leaves that loader in place instead of overriding it with an FSLoader over the fs.FS. Here
+// the fragment lives only in the registry (not in the fs.FS), so resolution proves the explicit
+// loader was used.
+func TestParseFileExplicitLoaderPrecedence(t *testing.T) {
+	fsys := fstest.MapFS{
+		"root.sql": {Data: []byte("where 1 = 1 /*%! @include frag */")},
+	}
+	p := bisql.NewParser(bisql.WithLoader(bisql.NewRegistry().Register("frag", "and 1 = 1")))
+	tmpl, err := p.ParseFile(fsys, "root.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tmpl.Build(nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if stmt.SQL != "where 1 = 1 and 1 = 1" || len(stmt.Args) != 0 {
+		t.Errorf("SQL=%q Args=%#v", stmt.SQL, stmt.Args)
 	}
 }
 

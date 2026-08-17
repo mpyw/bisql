@@ -142,3 +142,16 @@ func TestPostgresArrayLiteral(t *testing.T) {
 		}
 	}
 }
+
+// An array element the formatter cannot render (a struct) propagates its error out of the
+// array formatter, both for a flat array and through the recursive nested-array path.
+func TestPostgresArrayLiteralElementError(t *testing.T) {
+	lit := dialect.PostgreSQL.Literal()
+
+	if _, err := lit([]any{struct{}{}}); err == nil {
+		t.Error("flat array with an unformattable struct element should error")
+	}
+	if _, err := lit([][]any{{struct{}{}}}); err == nil {
+		t.Error("nested array with an unformattable struct element should error")
+	}
+}

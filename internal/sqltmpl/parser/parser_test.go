@@ -222,6 +222,29 @@ func TestParse_ErrorMessages(t *testing.T) {
 		// Asymmetry vs bind: reducer.go accepts a Word OR Paren test for a bind, but a literal
 		// test must be a Word — a Paren is rejected.
 		{"literal test must be a Word not Paren", "/*^x*/(1)", "the test value must follow the literal value directive"},
+		// A lexer error (an unterminated quoted literal) surfaces through Parse verbatim.
+		{"lexer error propagation", "'unterminated", "unterminated quoted literal"},
+		// A lexer error inside a parenthesized sub-parse propagates out through the child parser.
+		{"lexer error propagation in parens", "('unterminated", "unterminated quoted literal"},
+		// A for block whose /*%end*/ never arrives fails when the block is force-reduced at EOF.
+		{"for without end", "/*%for x in y*/ z", "the corresponding end directive is not found"},
+		// The if directive carries no expression.
+		{"if without expression", "/*%if*/x/*%end*/", "expression is not found in the if directive"},
+		// The for directive carries no statement at all.
+		{"for without statement", "/*%for*/x/*%end*/", "the statement is not found in the for directive"},
+		// The elseif directive carries no expression.
+		{"elseif without expression", "/*%if a*/x/*%elseif*/y/*%end*/", "expression is not found in the elseif directive"},
+		// A bind directive with nothing following it has no test value.
+		{"bind without test value", "/*val*/", "the test value must follow the bind value directive"},
+		// A literal directive with nothing following it has no test value.
+		{"literal without test value", "/*^val*/", "the test value must follow the literal value directive"},
+		// A bind whose only follower is another directive (/*%end*/, /*%elseif*/, /*%else*/) is
+		// reduce-unwound by that directive: the bind reducer errors for the missing test value.
+		{"bind test unwound by end", "/*%if true*/ /*val*/ /*%end*/", "the test value must follow the bind value directive"},
+		{"bind test unwound by elseif", "/*%if true*/ /*val*/ /*%elseif y*/ z /*%end*/", "the test value must follow the bind value directive"},
+		{"bind test unwound by else", "/*%if true*/ /*val*/ /*%else*/ z /*%end*/", "the test value must follow the bind value directive"},
+		// A for whose iterable is empty once its separator clause is split off.
+		{"for empty iterable before separator", "/*%for x in : ',' */x/*%end*/", "the iterable expression is not found in the for directive"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -233,6 +256,15 @@ func TestParse_ErrorMessages(t *testing.T) {
 				t.Errorf("parser.Parse(%q) error = %q, want substring %q", c.src, err.Error(), c.want)
 			}
 		})
+	}
+}
+
+// TestParse_ForDoubledQuoteInIterable covers the doubled-quote escape inside a string within
+// the for iterable expression: the `”` in f('a”b') is a single escaped quote, so the scan
+// stays inside the string and never sees a top-level colon separator. Parse must succeed.
+func TestParse_ForDoubledQuoteInIterable(t *testing.T) {
+	if _, err := parser.Parse("/*%for x in f('a''b') */x/*%end*/"); err != nil {
+		t.Fatalf("parser.Parse: unexpected error: %v", err)
 	}
 }
 
