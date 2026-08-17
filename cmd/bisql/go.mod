@@ -3,7 +3,6 @@ module github.com/mpyw/bisql/cmd/bisql
 go 1.25.0
 
 require (
-	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/mpyw/bisql v0.0.0
 	github.com/urfave/cli/v3 v3.11.0
 )

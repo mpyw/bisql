@@ -486,58 +486,25 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
 ```
 
-Available on the command line as `bisql expand`. `@include` names resolve under
-`--include-root`, identically to the library's `FSLoader`. There are two modes.
-
-**Filter mode** — one template (a file or standard input) to standard output, or `--output`:
-
-```sh
-bisql expand --include-root sql sql/employees/search.sql              # to stdout
-bisql expand --include-root sql -o gen/search.sql sql/employees/search.sql
-cat sql/employees/search.sql | bisql expand --include-root sql -
-```
-
-**Tree mode** (`--out-dir`) — expand the `*.sql` files under `--include-root` in one process,
-writing the results into the output directory. This is the form for `go generate`, so a
-directory costs one process, not one per file:
+The same step is available on the command line as `bisql expand`, a plain filter: it reads a
+template from standard input and writes the expanded SQL to standard output. `@include` names
+resolve under `--include-root` (`-r`), identically to the library's `FSLoader`, and an
+unresolved include exits non-zero, so a run also validates.
 
 ```sh
-bisql expand --include-root sql --out-dir gen            # every *.sql, mirrored to gen/
+bisql expand -r sql < sql/employees/search.sql > gen/search.sql
+cat sql/employees/search.sql | bisql expand -r sql | psql ...
 ```
 
-```go
-//go:generate bisql expand --include-root sql --out-dir gen
-```
-
-Positional arguments are input globs (relative to `--include-root`, matched by the tool, so
-`**` works from `go generate` without a shell); with none, every `*.sql` file is expanded.
-`--exclude` (`-x`, repeatable) then removes files from the output while they remain
-`@include`able. In a glob, a slashless pattern matches the base name at any depth, and a
-pattern with a slash matches the whole path.
-
-`--out-name-format` is a [Go template](https://pkg.go.dev/text/template) that names each output
-relative to `--out-dir`; it defaults to `{{.Path}}` (mirror the input tree). The fields, for an
-input of `employees/search.sql`, are:
-
-| Field    | Value                    |
-|:---------|:-------------------------|
-| `.Path`  | `employees/search.sql`   |
-| `.Dir`   | `employees`              |
-| `.Base`  | `search.sql`             |
-| `.Name`  | `search`                 |
-| `.Ext`   | `.sql`                   |
+There is no batch mode: to expand many files, drive it from the shell, or call
+`bisql.ExpandFile` from Go, where you control the output layout, naming, and atomicity —
+rather than have the tool reinvent them.
 
 ```sh
-# select one directory, drop fragments, and rename search.sql -> search.gen.sql (tree kept)
-bisql expand --include-root sql --out-dir gen \
-    --exclude '_*.sql' --out-name-format '{{.Dir}}/{{.Name}}.gen.sql' 'employees/*.sql'
-```
-
-`--output`/`-o` and `--out-dir`/`-O` are mutually exclusive, and `--include-root` is `-r`.
-Expansion exits non-zero on an unresolved include, so a run also validates; for drift, use git:
-
-```sh
-bisql expand --include-root sql --out-dir gen && git diff --exit-code gen
+# a shell one-liner over a tree
+find sql -name '*.sql' | while read -r f; do
+  bisql expand -r sql < "$f" > "gen/${f#sql/}"
+done
 ```
 
 The command is a separate module, so the library keeps its single dependency; install it with
