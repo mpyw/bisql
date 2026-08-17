@@ -19,7 +19,7 @@ import (
 func main() {
 	cmd := &cli.Command{
 		Name:  "bisql",
-		Usage: "two-way SQL template tool",
+		Usage: "Two-way SQL template tool",
 		Commands: []*cli.Command{
 			expandCommand(),
 		},

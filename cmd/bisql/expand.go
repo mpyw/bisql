@@ -16,29 +16,35 @@ import (
 
 func expandCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "expand",
-		Usage:     "resolve @include directives and write the expanded two-way SQL",
-		ArgsUsage: "[template.sql]",
-		Description: "Resolves every /*%! @include ... */ directive and writes the expanded text.\n" +
-			"All other directives are left intact, so the result is still a runnable two-way\n" +
-			"template. Include names resolve under --root, exactly as the library's FSLoader\n" +
-			"resolves them, so the output matches what the application sees. Expansion fails\n" +
-			"(non-zero exit) if an @include cannot be resolved, so a plain run doubles as a check.\n\n" +
-			"Filter mode (default): read one template (a file, or stdin) and write the result to\n" +
-			"stdout or, with -o, a single file.\n\n" +
-			"Tree mode (--out-dir): expand every *.sql under --root in a single process and\n" +
-			"mirror the results into the output directory (same relative paths). This is the\n" +
-			"form to use from go generate, so a whole directory costs one process, not one per\n" +
-			"file. To gate CI on the committed output, regenerate and let git detect drift\n" +
-			"(bisql expand --out-dir gen && git diff --exit-code gen).",
+		Name:  "expand",
+		Usage: "Resolve @include directives and write the expanded two-way SQL",
+		UsageText: "Filter mode — one template to standard output or a file:\n" +
+			"  bisql expand [--include-root DIR] [--output FILE] [template.sql|-]\n" +
+			"\n" +
+			"Tree mode — expand every *.sql under the root into a directory:\n" +
+			"  bisql expand [--include-root DIR] --out-dir DIR",
+		Description: "Resolves every /*%! @include ... */ directive in a template and writes the\n" +
+			"expanded text. All other directives are preserved, so the result remains a\n" +
+			"runnable two-way template. Include names are resolved under --include-root,\n" +
+			"identically to the library's FSLoader, so the output matches what the application\n" +
+			"observes at run time. Expansion exits non-zero when an @include cannot be\n" +
+			"resolved; a plain run therefore also validates the templates.\n\n" +
+			"Filter mode (the default) reads a single template — a file argument, or standard\n" +
+			"input — and writes the result to standard output, or to a file with --output.\n\n" +
+			"Tree mode (--out-dir) expands every *.sql file under --include-root in a single\n" +
+			"process and mirrors the results into the output directory, preserving relative\n" +
+			"paths. This is the intended form for go generate, so that an entire directory\n" +
+			"costs one process rather than one per file. Files that contain no @include are\n" +
+			"mirrored unchanged. To gate CI on the committed output, regenerate and let git\n" +
+			"report drift: bisql expand --out-dir gen && git diff --exit-code gen.",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "root", Value: ".", Usage: "base `directory` for @include resolution (and, in tree mode, the source tree)"},
-			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "filter mode: write the result to this `file` instead of stdout"},
-			&cli.StringFlag{Name: "out-dir", Usage: "tree mode: mirror the expanded --root tree into this `directory`"},
+			&cli.StringFlag{Name: "include-root", Aliases: []string{"r"}, Value: ".", Usage: "Base `directory` from which @include fragments are resolved; in tree mode, also the source tree that is walked"},
+			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "Filter mode: write the result to `file` instead of standard output"},
+			&cli.StringFlag{Name: "out-dir", Aliases: []string{"O"}, Usage: "Tree mode: mirror the expanded source tree into `directory`"},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			return runExpand(expandOptions{
-				root:   cmd.String("root"),
+				root:   cmd.String("include-root"),
 				inputs: cmd.Args().Slice(),
 				output: cmd.String("output"),
 				outDir: cmd.String("out-dir"),
@@ -56,7 +62,7 @@ type expandOptions struct {
 
 func runExpand(opts expandOptions, stdin io.Reader, stdout io.Writer) error {
 	if opts.output != "" && opts.outDir != "" {
-		return fmt.Errorf("-o (a single file) and --out-dir (a tree) are mutually exclusive")
+		return fmt.Errorf("--output (a single file) and --out-dir (a tree) are mutually exclusive")
 	}
 	if opts.outDir != "" {
 		return runExpandTree(opts)
@@ -67,7 +73,7 @@ func runExpand(opts expandOptions, stdin io.Reader, stdout io.Writer) error {
 // runExpandFilter handles the one-in/one-out case.
 func runExpandFilter(opts expandOptions, stdin io.Reader, stdout io.Writer) error {
 	if len(opts.inputs) > 1 {
-		return fmt.Errorf("filter mode takes at most one template (got %d); use --out-dir for a tree", len(opts.inputs))
+		return fmt.Errorf("filter mode accepts at most one template (received %d); use --out-dir to expand a tree", len(opts.inputs))
 	}
 	var input string
 	if len(opts.inputs) == 1 {
@@ -92,7 +98,7 @@ func runExpandFilter(opts expandOptions, stdin io.Reader, stdout io.Writer) erro
 // out-dir, preserving relative paths.
 func runExpandTree(opts expandOptions) error {
 	if len(opts.inputs) > 0 {
-		return fmt.Errorf("--out-dir expands the whole --root tree and takes no file arguments")
+		return fmt.Errorf("--out-dir expands the entire --include-root tree and accepts no file arguments")
 	}
 	rels, err := sqlFilesUnder(opts.root)
 	if err != nil {
