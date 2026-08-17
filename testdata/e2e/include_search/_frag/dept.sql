@@ -1,0 +1,1 @@
+/*%if dept != null*/and dept_no = /*dept*/0/*%end*/
