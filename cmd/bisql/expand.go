@@ -23,24 +23,16 @@ func expandCommand() *cli.Command {
 			"\n" +
 			"Tree mode — expand every *.sql under the root into a directory:\n" +
 			"  bisql expand [--include-root DIR] --out-dir DIR",
-		Description: "Resolves every /*%! @include ... */ directive in a template and writes the\n" +
-			"expanded text. All other directives are preserved, so the result remains a\n" +
-			"runnable two-way template. Include names are resolved under --include-root,\n" +
-			"identically to the library's FSLoader, so the output matches what the application\n" +
-			"observes at run time. Expansion exits non-zero when an @include cannot be\n" +
-			"resolved; a plain run therefore also validates the templates.\n\n" +
-			"Filter mode (the default) reads a single template — a file argument, or standard\n" +
-			"input — and writes the result to standard output, or to a file with --output.\n\n" +
-			"Tree mode (--out-dir) expands every *.sql file under --include-root in a single\n" +
-			"process and mirrors the results into the output directory, preserving relative\n" +
-			"paths. This is the intended form for go generate, so that an entire directory\n" +
-			"costs one process rather than one per file. Files that contain no @include are\n" +
-			"mirrored unchanged. To gate CI on the committed output, regenerate and let git\n" +
-			"report drift: bisql expand --out-dir gen && git diff --exit-code gen.",
+		Description: "Resolves /*%! @include ... */ directives and writes the expanded, still-two-way\n" +
+			"SQL. Include names resolve under --include-root, as the library's FSLoader does;\n" +
+			"expansion exits non-zero on an unresolved include, so a run also validates.\n\n" +
+			"Filter mode reads one template (a file or standard input) to standard output, or\n" +
+			"to --output. Tree mode (--out-dir) expands every *.sql under --include-root in one\n" +
+			"process, mirroring the tree — the form for go generate.",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "include-root", Aliases: []string{"r"}, Value: ".", Usage: "Base `directory` from which @include fragments are resolved; in tree mode, also the source tree that is walked"},
-			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "Filter mode: write the result to `file` instead of standard output"},
-			&cli.StringFlag{Name: "out-dir", Aliases: []string{"O"}, Usage: "Tree mode: mirror the expanded source tree into `directory`"},
+			&cli.StringFlag{Name: "include-root", Aliases: []string{"r"}, Value: ".", Usage: "Base `directory` for @include resolution (and the tree-mode source)"},
+			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "Filter mode: write to `file` instead of standard output"},
+			&cli.StringFlag{Name: "out-dir", Aliases: []string{"O"}, Usage: "Tree mode: mirror the expanded tree into `directory`"},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			return runExpand(expandOptions{

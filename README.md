@@ -486,27 +486,19 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "employees/search.sql")
 ```
 
-The same step is available from the command line as `bisql expand`. `@include` names are
-resolved under `--include-root`, identically to the library's `FSLoader`, so the output matches
-what the application observes at run time. The command has two modes.
+Available on the command line as `bisql expand`. `@include` names resolve under
+`--include-root`, identically to the library's `FSLoader`. There are two modes.
 
-**Filter mode** processes a single template — a file argument or standard input — and writes
-the result to standard output, or to a file with `--output`:
+**Filter mode** — one template (a file or standard input) to standard output, or `--output`:
 
 ```sh
-# to standard output
-bisql expand --include-root sql sql/employees/search.sql
-
-# to a file (parent directories are created)
-bisql expand --include-root sql --output gen/search.sql sql/employees/search.sql
-
-# from standard input
+bisql expand --include-root sql sql/employees/search.sql              # to stdout
+bisql expand --include-root sql -o gen/search.sql sql/employees/search.sql
 cat sql/employees/search.sql | bisql expand --include-root sql -
 ```
 
-**Tree mode** (`--out-dir`) expands every `*.sql` file under `--include-root` in a single
-process and mirrors the results into the output directory, preserving relative paths. This is
-the intended form for `go generate`, so that an entire directory costs one process rather than
+**Tree mode** (`--out-dir`) — expand every `*.sql` under `--include-root` in one process,
+mirroring the tree. This is the form for `go generate`, so a directory costs one process, not
 one per file:
 
 ```sh
@@ -517,20 +509,16 @@ bisql expand --include-root sql --out-dir gen
 //go:generate bisql expand --include-root sql --out-dir gen
 ```
 
-Files that contain no `@include` are mirrored unchanged, so `gen/` is `sql/` with every include
-resolved. `--output` (a single file) and `--out-dir` (a tree) are mutually exclusive.
-
-Expansion exits non-zero when an `@include` cannot be resolved, so a plain run also validates
-the templates; there is no separate check flag. To gate CI on the committed output, regenerate
-and let git report drift:
+Files without an `@include` mirror unchanged, so `gen/` is `sql/` with includes resolved.
+`--output`/`-o` and `--out-dir`/`-O` are mutually exclusive, and `--include-root` is `-r`.
+Expansion exits non-zero on an unresolved include, so a run also validates; for drift, use git:
 
 ```sh
 bisql expand --include-root sql --out-dir gen && git diff --exit-code gen
 ```
 
-The flags `--include-root`, `--output`, and `--out-dir` also have the short forms `-r`, `-o`,
-and `-O`. The command lives in its own module, so the library retains its single dependency;
-install it with `go install github.com/mpyw/bisql/cmd/bisql@latest`.
+The command is a separate module, so the library keeps its single dependency; install it with
+`go install github.com/mpyw/bisql/cmd/bisql@latest`.
 
 ## Authoring rules
 
