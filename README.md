@@ -142,21 +142,109 @@ The complete set of obligations is specified in [Authoring rules](#authoring-rul
 
 These directives are evaluated during rendering and produce the SQL and its arguments.
 
-| Syntax                                              | Meaning                                                                                     |
-|:----------------------------------------------------|:--------------------------------------------------------------------------------------------|
-| `/* expr */literal`                                 | **Bind.** Emits a placeholder and binds the value of `expr` as an argument, replacing the trailing `literal`. That `literal` is the two-way sample value, used only when the raw template is run in a client and ignored at build time. |
-| `/*^ expr */literal`                                | **Literal.** Inlines the value of `expr` into the SQL as a formatted literal, replacing the trailing `literal`, instead of binding it. For trusted values that cannot be parameterized (for example, DDL); injection-prone. |
-| `/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/`  | **Conditional.** Renders the first branch whose condition is true, or the `/*%else*/` branch if none is; the other branches are omitted. |
-| `/*%for x in xs*/ … /*%end*/`                       | **Iteration.** Renders the body once for each element of `xs`, bound to `x`. An optional `: 'sep'` clause (`/*%for x in xs : ', '*/`) emits `sep` between iterations. |
+<table>
+<thead>
+<tr><th>Syntax</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```sql
+/* expr */literal
+```
+
+</td>
+<td>
+
+**Bind.** Emits a placeholder and binds the value of `expr` as an argument, replacing the trailing `literal`. That `literal` is the two-way sample value, used only when the raw template is run in a client and ignored at build time.
+
+</td>
+</tr>
+<tr>
+<td>
+
+```sql
+/*^ expr */literal
+```
+
+</td>
+<td>
+
+**Literal.** Inlines the value of `expr` into the SQL as a formatted literal, replacing the trailing `literal`, instead of binding it. For trusted values that cannot be parameterized (for example, DDL); injection-prone.
+
+</td>
+</tr>
+<tr>
+<td>
+
+```sql
+/*%if e*/ … /*%elseif e*/ … /*%else*/ … /*%end*/
+```
+
+</td>
+<td>
+
+**Conditional.** Renders the first branch whose condition is true, or the `/*%else*/` branch if none is; the other branches are omitted.
+
+</td>
+</tr>
+<tr>
+<td>
+
+```sql
+/*%for x in xs*/ … /*%end*/
+```
+
+</td>
+<td>
+
+**Iteration.** Renders the body once for each element of `xs`, bound to `x`. An optional `: 'sep'` clause (`/*%for x in xs : ', '*/`) emits `sep` between iterations.
+
+</td>
+</tr>
+</tbody>
+</table>
 
 ### Preprocessor directives
 
 These directives share the `/*%! … */` channel and are resolved before lexing.
 
-| Syntax                    | Meaning                                                                                     |
-|:--------------------------|:--------------------------------------------------------------------------------------------|
-| `/*%! @include name */`   | **Include.** Splices the named fragment's text before lexing (see [Fragment inclusion](#fragment-inclusion)). |
-| `/*%! … */`               | **Parser comment.** Removed from the output; carries no SQL.                                |
+<table>
+<thead>
+<tr><th>Syntax</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```sql
+/*%! @include name */
+```
+
+</td>
+<td>
+
+**Include.** Splices the named fragment's text before lexing (see [Fragment inclusion](#fragment-inclusion)).
+
+</td>
+</tr>
+<tr>
+<td>
+
+```sql
+/*%! … */
+```
+
+</td>
+<td>
+
+**Parser comment.** Removed from the output; carries no SQL.
+
+</td>
+</tr>
+</tbody>
+</table>
 
 All other comment forms — block comments (`/** … */`), line comments (`-- …`), and optimizer
 hints (`/*+ … */`) — pass through to the output unchanged.
