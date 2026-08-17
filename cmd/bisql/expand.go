@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/template"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/mpyw/bisql"
@@ -23,20 +24,25 @@ func expandCommand() *cli.Command {
 		UsageText: "Filter mode — one template to standard output or a file:\n" +
 			"  bisql expand [--include-root DIR] [--output FILE] [template.sql|-]\n" +
 			"\n" +
-			"Tree mode — expand every *.sql under the root into a directory:\n" +
-			"  bisql expand [--include-root DIR] [--exclude GLOB]... --out-dir DIR",
+			"Tree mode — expand the *.sql files under the root into a directory:\n" +
+			"  bisql expand [--include-root DIR] [--out-name TMPL] [--exclude GLOB]... --out-dir DIR [GLOB...]",
 		Description: "Resolves /*%! @include ... */ directives and writes the expanded, still-two-way\n" +
 			"SQL. Include names resolve under --include-root, as the library's FSLoader does;\n" +
 			"expansion exits non-zero on an unresolved include, so a run also validates.\n\n" +
 			"Filter mode reads one template (a file or standard input) to standard output, or\n" +
-			"to --output. Tree mode (--out-dir) expands every *.sql under --include-root in one\n" +
-			"process, mirroring the tree — the form for go generate. --exclude omits fragment\n" +
-			"files from that output while still allowing them to be @included.",
+			"to --output. Tree mode (--out-dir) expands the *.sql files under --include-root in\n" +
+			"one process — the form for go generate. Positional GLOBs select the inputs (default:\n" +
+			"all), --exclude removes fragment files from the output (they stay @includable), and\n" +
+			"--out-name is a Go template naming each output relative to --out-dir. GLOBs are\n" +
+			"matched by the tool (** spans directories); a slashless pattern matches the base\n" +
+			"name at any depth. --out-name fields: .Path .Dir .Base .Name .Ext (e.g. for\n" +
+			"employees/search.sql: employees, search.sql, search, .sql).",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "include-root", Aliases: []string{"r"}, Value: ".", Usage: "Base `directory` for @include resolution (and the tree-mode source)"},
 			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "Filter mode: write to `file` instead of standard output"},
-			&cli.StringFlag{Name: "out-dir", Aliases: []string{"O"}, Usage: "Tree mode: mirror the expanded tree into `directory`"},
-			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"x"}, Usage: "Tree mode: omit files matching `glob` from the output (repeatable; still @includable). A slashless pattern matches the base name at any depth."},
+			&cli.StringFlag{Name: "out-dir", Aliases: []string{"O"}, Usage: "Tree mode: write the expanded tree into `directory`"},
+			&cli.StringFlag{Name: "out-name", Value: "{{.Path}}", Usage: "Tree mode: Go `template` for each output path, relative to --out-dir (default mirrors the input)"},
+			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"x"}, Usage: "Tree mode: omit files matching `glob` from the output (repeatable; still @includable)"},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			return runExpand(expandOptions{
@@ -44,6 +50,7 @@ func expandCommand() *cli.Command {
 				inputs:  cmd.Args().Slice(),
 				output:  cmd.String("output"),
 				outDir:  cmd.String("out-dir"),
+				outName: cmd.String("out-name"),
 				exclude: cmd.StringSlice("exclude"),
 			}, os.Stdin, os.Stdout)
 		},
@@ -52,9 +59,10 @@ func expandCommand() *cli.Command {
 
 type expandOptions struct {
 	root    string   // base directory for @include resolution (and the tree-mode source root)
-	inputs  []string // filter mode: zero or one template path ("" / "-" => stdin)
+	inputs  []string // filter mode: a template path ("" / "-" => stdin); tree mode: input globs
 	output  string   // filter mode: -o target file ("" => stdout)
 	outDir  string   // tree mode: --out-dir destination ("" => filter mode)
+	outName string   // tree mode: Go template for each output path relative to out-dir
 	exclude []string // tree mode: globs whose matches are omitted from the output
 }
 
@@ -92,22 +100,30 @@ func runExpandFilter(opts expandOptions, stdin io.Reader, stdout io.Writer) erro
 	return err
 }
 
-// runExpandTree expands every *.sql under root in one process and mirrors the results into
-// out-dir, preserving relative paths.
+// runExpandTree expands the selected *.sql files under root in one process and writes the
+// results into out-dir, naming each output with the --out-name template.
 func runExpandTree(opts expandOptions) error {
-	if len(opts.inputs) > 0 {
-		return fmt.Errorf("--out-dir expands the entire --include-root tree and accepts no file arguments")
+	if opts.outName == "" {
+		opts.outName = "{{.Path}}"
 	}
-	rels, err := sqlFilesUnder(opts.root)
+	nameTmpl, err := template.New("out-name").Parse(opts.outName)
+	if err != nil {
+		return fmt.Errorf("invalid --out-name template: %w", err)
+	}
+
+	rels, err := selectInputs(opts.root, opts.inputs)
 	if err != nil {
 		return err
 	}
-	if len(rels) == 0 {
-		return fmt.Errorf("no .sql templates found under %s", opts.root)
-	}
+
+	// Resolve every output path first, so an --out-name collision is reported before anything
+	// is written.
+	type job struct{ rel, target string }
+	var jobs []job
+	byTarget := map[string]string{}
 	for _, rel := range rels {
-		// An excluded file is skipped from the output but still resolvable as an @include,
-		// since fragments are loaded from --include-root, not from this walk.
+		// An excluded file is dropped from the output but stays resolvable as an @include,
+		// since fragments load from --include-root independently of this selection.
 		skip, err := matchesAny(rel, opts.exclude)
 		if err != nil {
 			return err
@@ -115,19 +131,98 @@ func runExpandTree(opts expandOptions) error {
 		if skip {
 			continue
 		}
-		src, err := os.ReadFile(filepath.Join(opts.root, filepath.FromSlash(rel)))
+		outRel, err := renderOutName(nameTmpl, rel)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(opts.outDir, filepath.FromSlash(outRel))
+		if prev, dup := byTarget[target]; dup {
+			return fmt.Errorf("output collision: %s and %s both map to %s", prev, rel, outRel)
+		}
+		byTarget[target] = rel
+		jobs = append(jobs, job{rel: rel, target: target})
+	}
+	if len(jobs) == 0 {
+		return fmt.Errorf("no .sql templates to expand under %s", opts.root)
+	}
+
+	for _, j := range jobs {
+		src, err := os.ReadFile(filepath.Join(opts.root, filepath.FromSlash(j.rel)))
 		if err != nil {
 			return err
 		}
 		expanded, err := expandText(string(src), opts.root)
 		if err != nil {
-			return fmt.Errorf("%s: %w", rel, err)
+			return fmt.Errorf("%s: %w", j.rel, err)
 		}
-		if err := writeFile(filepath.Join(opts.outDir, filepath.FromSlash(rel)), expanded); err != nil {
+		if err := writeFile(j.target, expanded); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// selectInputs returns the *.sql files under root (as sorted slash paths) that match any of
+// the input globs; with no globs, every *.sql file is selected.
+func selectInputs(root string, globs []string) ([]string, error) {
+	all, err := sqlFilesUnder(root)
+	if err != nil {
+		return nil, err
+	}
+	if len(all) == 0 {
+		return nil, fmt.Errorf("no .sql templates found under %s", root)
+	}
+	if len(globs) == 0 {
+		return all, nil
+	}
+	var sel []string
+	for _, rel := range all {
+		ok, err := matchesAny(rel, globs)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			sel = append(sel, rel)
+		}
+	}
+	if len(sel) == 0 {
+		return nil, fmt.Errorf("no .sql files matched: %s", strings.Join(globs, ", "))
+	}
+	return sel, nil
+}
+
+// pathFields are the fields exposed to the --out-name template for one input path.
+type pathFields struct {
+	Path string // full relative slash path, e.g. "employees/search.sql"
+	Dir  string // directory, e.g. "employees" ("." at the root)
+	Base string // file name with extension, e.g. "search.sql"
+	Name string // file name without the final extension, e.g. "search"
+	Ext  string // final extension including the dot, e.g. ".sql"
+}
+
+// renderOutName evaluates the --out-name template for rel and returns the cleaned output path
+// relative to out-dir, rejecting an empty or escaping (absolute or "..") result.
+func renderOutName(t *template.Template, rel string) (string, error) {
+	ext := path.Ext(rel)
+	base := path.Base(rel)
+	var b strings.Builder
+	if err := t.Execute(&b, pathFields{
+		Path: rel,
+		Dir:  path.Dir(rel),
+		Base: base,
+		Name: strings.TrimSuffix(base, ext),
+		Ext:  ext,
+	}); err != nil {
+		return "", fmt.Errorf("--out-name for %s: %w", rel, err)
+	}
+	out := path.Clean(strings.TrimSpace(b.String()))
+	if out == "" || out == "." {
+		return "", fmt.Errorf("--out-name produced an empty path for %s", rel)
+	}
+	if path.IsAbs(out) || out == ".." || strings.HasPrefix(out, "../") {
+		return "", fmt.Errorf("--out-name produced a path outside --out-dir for %s: %q", rel, out)
+	}
+	return out, nil
 }
 
 // matchesAny reports whether the slash path rel matches any of the glob patterns. A pattern

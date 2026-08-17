@@ -108,6 +108,54 @@ func TestTree_MirrorsRoot(t *testing.T) {
 	}
 }
 
+func TestTree_InputGlob(t *testing.T) {
+	root, _ := fixture(t)
+	writeTree(t, root, map[string]string{
+		"employees/list.sql": "select 1 /*%! @include employees/_active.sql */",
+		"depts/all.sql":      "select 2",
+	})
+	outDir := filepath.Join(t.TempDir(), "gen")
+
+	var out strings.Builder
+	// Select only the employees directory; depts must be skipped.
+	if err := runExpand(expandOptions{root: root, outDir: outDir, outName: "{{.Path}}", inputs: []string{"employees/*.sql"}}, nil, &out); err != nil {
+		t.Fatalf("runExpand: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "employees/search.sql")); err != nil {
+		t.Errorf("employees/search.sql should be emitted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "depts/all.sql")); err == nil {
+		t.Error("depts/all.sql should not be emitted (not matched)")
+	}
+}
+
+func TestTree_OutName(t *testing.T) {
+	root, _ := fixture(t)
+	outDir := filepath.Join(t.TempDir(), "gen")
+
+	var out strings.Builder
+	// Keep the tree, append .gen before the extension.
+	if err := runExpand(expandOptions{root: root, outDir: outDir, outName: "{{.Dir}}/{{.Name}}.gen.sql"}, nil, &out); err != nil {
+		t.Fatalf("runExpand: %v", err)
+	}
+	if got := readFile(t, filepath.Join(outDir, "employees/search.gen.sql")); got != expandSearch {
+		t.Errorf("renamed output = %q", got)
+	}
+}
+
+func TestTree_OutNameCollision(t *testing.T) {
+	root, _ := fixture(t)
+	writeTree(t, root, map[string]string{"other/search.sql": "select 9"})
+	outDir := filepath.Join(t.TempDir(), "gen")
+
+	var out strings.Builder
+	// Flattening to the base name collides: employees/search.sql and other/search.sql.
+	err := runExpand(expandOptions{root: root, outDir: outDir, outName: "{{.Base}}"}, nil, &out)
+	if err == nil || !strings.Contains(err.Error(), "collision") {
+		t.Errorf("want a collision error, got %v", err)
+	}
+}
+
 func TestTree_Exclude(t *testing.T) {
 	root, _ := fixture(t)
 	writeTree(t, root, map[string]string{
@@ -145,7 +193,7 @@ func TestTree_Exclude(t *testing.T) {
 // --- errors ---
 
 func TestExpand_Errors(t *testing.T) {
-	root, tmpl := fixture(t)
+	root, _ := fixture(t)
 	writeTree(t, root, map[string]string{"broken.sql": "/*%! @include nope.sql */"})
 
 	cases := []struct {
@@ -154,11 +202,13 @@ func TestExpand_Errors(t *testing.T) {
 	}{
 		{"o and out-dir", expandOptions{root: root, output: "a", outDir: "b"}},
 		{"filter two inputs", expandOptions{root: root, inputs: []string{"a.sql", "b.sql"}}},
-		{"tree with file arg", expandOptions{root: root, inputs: []string{tmpl}, outDir: "gen"}},
+		{"tree glob matches nothing", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), inputs: []string{"zzz/*.sql"}}},
 		{"missing input file", expandOptions{root: root, inputs: []string{filepath.Join(root, "nope.sql")}}},
 		{"missing include (filter)", expandOptions{root: root, inputs: []string{filepath.Join(root, "broken.sql")}}},
 		{"missing include (tree)", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen")}},
 		{"invalid exclude pattern", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), exclude: []string{"[bad"}}},
+		{"invalid out-name", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), outName: "{{.Nope"}},
+		{"escaping out-name", expandOptions{root: root, outDir: filepath.Join(t.TempDir(), "gen"), outName: "../{{.Base}}"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

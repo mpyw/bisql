@@ -497,25 +497,40 @@ bisql expand --include-root sql -o gen/search.sql sql/employees/search.sql
 cat sql/employees/search.sql | bisql expand --include-root sql -
 ```
 
-**Tree mode** (`--out-dir`) — expand every `*.sql` under `--include-root` in one process,
-mirroring the tree. This is the form for `go generate`, so a directory costs one process, not
-one per file:
+**Tree mode** (`--out-dir`) — expand the `*.sql` files under `--include-root` in one process,
+writing the results into the output directory. This is the form for `go generate`, so a
+directory costs one process, not one per file:
 
 ```sh
-bisql expand --include-root sql --out-dir gen
+bisql expand --include-root sql --out-dir gen            # every *.sql, mirrored to gen/
 ```
 
 ```go
 //go:generate bisql expand --include-root sql --out-dir gen
 ```
 
-Files without an `@include` mirror unchanged, so `gen/` is `sql/` with includes resolved. To
-keep fragment files out of the output while still allowing them to be `@include`d, pass
-`--exclude` (`-x`, repeatable). A slashless pattern matches the base name at any depth; a
-pattern with a slash matches the whole path (`**` spans directories):
+Positional arguments are input globs (relative to `--include-root`, matched by the tool, so
+`**` works from `go generate` without a shell); with none, every `*.sql` file is expanded.
+`--exclude` (`-x`, repeatable) then removes files from the output while they remain
+`@include`able. In a glob, a slashless pattern matches the base name at any depth, and a
+pattern with a slash matches the whole path.
+
+`--out-name` is a [Go template](https://pkg.go.dev/text/template) that names each output
+relative to `--out-dir`; it defaults to `{{.Path}}` (mirror the input tree). The fields, for an
+input of `employees/search.sql`, are:
+
+| Field    | Value                    |
+|:---------|:-------------------------|
+| `.Path`  | `employees/search.sql`   |
+| `.Dir`   | `employees`              |
+| `.Base`  | `search.sql`             |
+| `.Name`  | `search`                 |
+| `.Ext`   | `.sql`                   |
 
 ```sh
-bisql expand --include-root sql --out-dir gen --exclude '_*.sql' --exclude 'partials/**'
+# select one directory, drop fragments, and rename search.sql -> search.gen.sql (tree kept)
+bisql expand --include-root sql --out-dir gen \
+    --exclude '_*.sql' --out-name '{{.Dir}}/{{.Name}}.gen.sql' 'employees/*.sql'
 ```
 
 `--output`/`-o` and `--out-dir`/`-O` are mutually exclusive, and `--include-root` is `-r`.
