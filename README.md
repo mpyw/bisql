@@ -157,7 +157,8 @@ These directives are evaluated during rendering and produce the SQL and its argu
 </td>
 <td>
 
-**Bind.** Emits a placeholder and binds the value of `expr` as an argument, replacing the trailing `literal` (the two-way sample value, ignored at build time).
+**Bind.** Emits a placeholder and binds the value of `expr` as an argument, replacing the
+trailing `literal` (the two-way sample value, ignored at build time).
 
 ```sql
 where name = /*name*/'SCOTT'
@@ -176,7 +177,9 @@ where name = /*name*/'SCOTT'
 </td>
 <td>
 
-**Literal.** Inlines the value of `expr` as a formatted SQL literal, replacing the trailing `literal`, instead of binding it. For trusted values that cannot be parameterized; injection-prone.
+**Literal.** Inlines the value of `expr` as a formatted SQL literal, replacing the trailing
+`literal`, instead of binding it. For trusted values that cannot be parameterized;
+injection-prone.
 
 ```sql
 limit /*^n*/10
@@ -201,7 +204,8 @@ limit /*^n*/10
 </td>
 <td>
 
-**Conditional.** Renders the first branch whose condition is true, or the `/*%else*/` branch if none is; the other branches are omitted.
+**Conditional.** Renders the first branch whose condition is true, or the `/*%else*/`
+branch if none is; the other branches are omitted.
 
 ```sql
 where 1 = 1 /*%if minAge != null*/and age >= /*minAge*/0/*%end*/
@@ -231,7 +235,8 @@ An optional `: 'sep'` clause emits `sep` between iterations:
 </td>
 <td>
 
-**Iteration.** Renders the body once for each element of `xs`, bound to `x`. The separator clause keeps an anchorless list (a multi-row `VALUES`) two-way.
+**Iteration.** Renders the body once for each element of `xs`, bound to `x`. The separator
+clause keeps an anchorless list (a multi-row `VALUES`) two-way.
 
 ```sql
 insert into t (a) values /*%for x in xs : ', '*/(/*x*/0)/*%end*/
@@ -262,7 +267,8 @@ These directives share the `/*%! … */` channel and are resolved before lexing.
 </td>
 <td>
 
-**Include.** Splices the named fragment's text in place before lexing (see [Fragment inclusion](#fragment-inclusion)).
+**Include.** Splices the named fragment's text in place before lexing (see
+[Fragment inclusion](#fragment-inclusion)).
 
 ```sql
 where 1 = 1 /*%! @include filters/active.sql */
