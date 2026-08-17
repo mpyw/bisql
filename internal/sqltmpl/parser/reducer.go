@@ -7,13 +7,12 @@ import (
 )
 
 // reducer accumulates child nodes and folds them into a single ast.Node.
-// Ported from Komapper's SqlReducer hierarchy.
 type reducer interface {
 	add(ast.Node)
 	reduce() (ast.Node, error)
 }
 
-// block marks reducers that /*%end*/ folds down to (if/for/with).
+// block marks reducers that /*%end*/ folds down to (if/for).
 type block interface {
 	reducer
 	isBlock()
@@ -28,48 +27,6 @@ type statementReducer struct{ nodes []ast.Node }
 
 func (r *statementReducer) add(n ast.Node)            { r.nodes = append(r.nodes, n) }
 func (r *statementReducer) reduce() (ast.Node, error) { return ast.Statement{Nodes: r.nodes}, nil }
-
-type setReducer struct {
-	loc     ast.Location
-	keyword string
-	left    ast.Node
-	nodes   []ast.Node
-}
-
-func (r *setReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *setReducer) reduce() (ast.Node, error) {
-	if len(r.nodes) == 0 {
-		return nil, fmt.Errorf("bisql/parser: the right operand of a set operation is not found")
-	}
-	right := r.nodes[0]
-	// Any trailing nodes belong to the right statement already (it was reduced whole);
-	// setReducer only ever receives one statement node.
-	return ast.Set{Loc: r.loc, Keyword: r.keyword, Left: r.left, Right: right}, nil
-}
-
-type clauseReducer struct {
-	loc     ast.Location
-	kind    ast.ClauseKind
-	keyword string
-	nodes   []ast.Node
-}
-
-func (r *clauseReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *clauseReducer) reduce() (ast.Node, error) {
-	return ast.Clause{Loc: r.loc, Kind: r.kind, Keyword: r.keyword, Nodes: r.nodes}, nil
-}
-
-type logicalReducer struct {
-	loc     ast.Location
-	kind    ast.LogicalKind
-	keyword string
-	nodes   []ast.Node
-}
-
-func (r *logicalReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *logicalReducer) reduce() (ast.Node, error) {
-	return ast.Logical{Loc: r.loc, Kind: r.kind, Keyword: r.keyword, Nodes: r.nodes}, nil
-}
 
 type bindReducer struct {
 	loc   ast.Location
@@ -153,24 +110,13 @@ type forDirectiveReducer struct {
 	token string
 	id    string
 	expr  string
+	sep   string
 	nodes []ast.Node
 }
 
 func (r *forDirectiveReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
 func (r *forDirectiveReducer) reduce() (ast.Node, error) {
-	return ast.ForDirective{Loc: r.loc, Token: r.token, Identifier: r.id, Expression: r.expr, Nodes: r.nodes}, nil
-}
-
-type withDirectiveReducer struct {
-	loc   ast.Location
-	token string
-	expr  string
-	nodes []ast.Node
-}
-
-func (r *withDirectiveReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *withDirectiveReducer) reduce() (ast.Node, error) {
-	return ast.WithDirective{Loc: r.loc, Token: r.token, Expression: r.expr, Nodes: r.nodes}, nil
+	return ast.ForDirective{Loc: r.loc, Token: r.token, Identifier: r.id, Expression: r.expr, Separator: r.sep, Nodes: r.nodes}, nil
 }
 
 // --- block reducers ---
@@ -252,35 +198,4 @@ func (r *forBlockReducer) reduce() (ast.Node, error) {
 		return nil, fmt.Errorf("bisql/parser: the corresponding end directive is not found at line %d, column %d", r.loc.Line, r.loc.Column)
 	}
 	return ast.ForBlock{For: *forDir, End: *endD}, nil
-}
-
-type withBlockReducer struct {
-	loc   ast.Location
-	nodes []ast.Node
-}
-
-func (r *withBlockReducer) isBlock()       {}
-func (r *withBlockReducer) add(n ast.Node) { r.nodes = append(r.nodes, n) }
-func (r *withBlockReducer) reduce() (ast.Node, error) {
-	var withDir *ast.WithDirective
-	var endD *ast.EndDirective
-	for _, n := range r.nodes {
-		switch d := n.(type) {
-		case ast.WithDirective:
-			dd := d
-			withDir = &dd
-		case ast.EndDirective:
-			dd := d
-			endD = &dd
-		default:
-			return nil, fmt.Errorf("bisql/parser: unexpected node in with block: %T", n)
-		}
-	}
-	if withDir == nil {
-		return nil, fmt.Errorf("bisql/parser: the with directive is not found at line %d, column %d", r.loc.Line, r.loc.Column)
-	}
-	if endD == nil {
-		return nil, fmt.Errorf("bisql/parser: the corresponding end directive is not found at line %d, column %d", r.loc.Line, r.loc.Column)
-	}
-	return ast.WithBlock{With: *withDir, End: *endD}, nil
 }

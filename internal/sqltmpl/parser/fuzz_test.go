@@ -8,18 +8,18 @@ import (
 var seeds = []string{
 	"",
 	"select 1",
-	"select name from person where name = /*name*/'x' and age > /*age*/0",
-	"select 1 from t where /*%if a*/x = 1/*%elseif b*/y = 2/*%else*/z = 3/*%end*/",
-	"select /*%for i in xs*//*# i */ /*# i_next_comma */ /*%end*/ from t",
-	"select 1 from (select * from t) union select 1 from u",
-	"select 1 /** comment */ from t -- line\n where a in /*ids*/(1, 2)",
-	"select 1 from t where /*%with u*/a = /*a*/0/*%end*/",
-	"group by\torder by for update option (x)",
-	"/*> partial */",
+	"select * from t where a = /*a*/'x' and b > /*b*/0",
+	"select id from t where id in /*ids*/(1, 2)",
+	"select 1 /*%if a*/x/*%elseif b*/y/*%else*/z/*%end*/",
+	"select /*%for c in cols : ', '*//*c*/0/*%end*/ id from t",
+	"select 1 /** c */ /*# c2 */ -- line\n from `t`",
+	"a = /*a*/1::bigint",
+	"'{}' \"id\" `x`",
+	"-0 line\xa1#\x9b", // regression: the signed-number spin found earlier
 }
 
 // FuzzParse asserts the parser never panics and, when it succeeds on input without a
-// dropped parser-comment (/*%!), reproduces the input exactly (the lossless invariant).
+// dropped parser-comment (/*%!) or delimiter (;), reproduces the input exactly.
 func FuzzParse(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s)
@@ -29,11 +29,8 @@ func FuzzParse(f *testing.F) {
 		if err != nil {
 			return // rejecting malformed input is fine; it must not panic
 		}
-		// Two intended non-lossless cases (matching Komapper): parser-level comments
-		// (/*%!) are dropped, and a delimiter (;) terminates the statement, discarding it
-		// and anything after it.
 		if strings.Contains(src, "/*%!") || strings.Contains(src, ";") {
-			return
+			return // intentionally non-lossless
 		}
 		if got := node.Text(); got != src {
 			t.Fatalf("lossless round-trip failed\n got: %q\nwant: %q", got, src)

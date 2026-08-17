@@ -6,153 +6,114 @@ import (
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 )
 
-// roundtrip asserts Parse(src).Text() == src (lossless), the parser's core invariant.
-func roundtrip(t *testing.T, src string) ast.Node {
-	t.Helper()
-	n, err := Parse(src)
-	if err != nil {
-		t.Fatalf("Parse(%q): %v", src, err)
-	}
-	if got := n.Text(); got != src {
-		t.Fatalf("round-trip\n src: %q\n got: %q", src, got)
-	}
-	return n
-}
-
-func mustErr(t *testing.T, src string) {
-	t.Helper()
-	if _, err := Parse(src); err == nil {
-		t.Fatalf("Parse(%q): expected error", src)
-	}
-}
-
-// Cases ported from Komapper's SqlParserTest (lossless round-trip focus).
-
-func TestParse_empty(t *testing.T) {
-	n := roundtrip(t, "")
-	if st, ok := n.(ast.Statement); !ok || len(st.Nodes) != 0 {
-		t.Fatalf("empty must be an empty Statement, got %#v", n)
-	}
-}
-
-func TestParse_roundtrip(t *testing.T) {
+// The tree is lossless: Text() reproduces the input, except parser comments (/*%!) and a
+// trailing delimiter (;) are dropped.
+//
+// Every case is also a *valid 2-way template*: with the directives read as SQL comments (as
+// a DB client would), the raw text is runnable SQL. That means the branch/loop bodies are
+// composing (each carries a leading `and`/`or`) and anchored (`1 = 1` / `1 = 0` / a trailing
+// key), so nothing dangles — the same discipline bisql asks of authors.
+func TestParse_Lossless(t *testing.T) {
 	cases := []string{
-		"select * from person",
-		"select name, age from person where name = /*name*/'test' and age > 1 order by name, age for update",
-		"select name, age",
-		"from person inner join salary",
-		"where name = 'aaa'",
-		"group by name",
-		"having count(*) > 1",
-		"order by name, age",
-		"and age > 1",
-		"or age > 1",
-		"/* age */1",
-		"/* age */(1,2,3)",
-		"/*# age */",
-		"/*^ age */1",
-		"-- single line comment",
-		"select * from person union select * from employee",
-		"select * from person union select * from employee union select * from worker",
-		"select date()",
-		"select * from (select * from person)",
-		"/*%if a*/ b /*%end*/ h",
-		"/*% if a */ b /*% end */ h",
-		"/*%if a*/ b /*%elseif c*/ d /*%end*/ h",
-		"/*%if a*/ b /*%elseif c*/ d /*%elseif e*/ f /*%else*/ g /*%end*/ h",
-		"/*%if a*/ b /*%else*/ d /*%end*/ h",
-		"/*%if aaa*/ a /*%for bbb in ccc*/ b /*%end*/ c /*%end*/",
-		"/*%if aaa*/ a /*%if bbb*/ b /*%end*/ c /*%end*/",
-		"/*%for a in aaa*/ b /*%end*/ h",
-		"/*% for a in aaa */ b /*% end */ h",
-		"/*%for a in aaa*/ b /*%for c in ccc*/ d /*%end*/ e /*%end*/",
-		"/*%with a*/ b /*%end*/ h",
-		"select emp_no from employees where /*> active */",
+		"",
+		"select 1",
+		"select * from t where a = /*a*/'x' and b > /*b*/0",
+		"select id from t where id in /*ids*/(1, 2, 3)",
+		"select * from (select id from t) x",
+		// if/elseif/else with composing (`and ...`) bodies + a 1=1 anchor: raw text is
+		// `where 1 = 1 and x = 1 and y = 2 and z = 3`, which is valid.
+		"select * from t where 1 = 1 /*%if a*/ and x = 1/*%elseif b*/ and y = 2/*%else*/ and z = 3/*%end*/",
+		// for-loop with a 1=0 OR-anchor and a self-contained `or ...` body: raw text is
+		// `where 1 = 0 or name like '%x%'`, which is valid.
+		"select * from t where 1 = 0 /*%for kw in kws*/or name like /*kw*/'%x%'/*%end*/",
+		// for-loop with a `: 'sep'` separator clause (build-only; the directive is a comment
+		// when pasted raw, so the raw text is a single-element list `select 0 id from t`).
+		"select /*%for c in cols : ', '*//*c*/0/*%end*/ id from t",
+		"select /** keep */ /*# also a comment now */ 1 -- trailing\nfrom t",
+		"select * from t where a = /*a*/1::bigint and b = ANY(/*b*/'{}'::int[])",
+		"select `a`, \"b\", 'c/*x*/' from t",
 	}
-	for _, c := range cases {
-		t.Run(c, func(t *testing.T) { roundtrip(t, c) })
+	for _, src := range cases {
+		n, err := Parse(src)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", src, err)
+			continue
+		}
+		if got := n.Text(); got != src {
+			t.Errorf("lossless mismatch\n got: %q\nwant: %q", got, src)
+		}
 	}
 }
 
-func TestParse_parserLevelCommentIsDropped(t *testing.T) {
-	n, err := Parse("select a/*%! comment */ from b")
+func TestParse_ParserCommentAndDelimiterDropped(t *testing.T) {
+	n, err := Parse("select 1 /*%! note */ from t; select 2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := n.Text(); got != "select a from b" {
-		t.Errorf("got %q, want %q", got, "select a from b")
+	if got := n.Text(); got != "select 1  from t" {
+		t.Errorf("got %q", got)
 	}
 }
 
-func TestParse_structures(t *testing.T) {
-	// bind value: test value is a Word
-	n, _ := Parse("/* age */1")
+func TestParse_Structure(t *testing.T) {
+	// Note: a bind directive folds any following nodes into its Trailing until a reduce
+	// boundary, so put the if-block first to keep both at the top level.
+	n, err := Parse("/*%if p*/y/*%end*/ /*a*/'v'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := n.(ast.Statement)
+	if !ok {
+		t.Fatalf("root is %T, want Statement", n)
+	}
+	var sawBind, sawIf bool
+	for _, c := range st.Nodes {
+		switch b := c.(type) {
+		case ast.BindValue:
+			sawBind = true
+			if b.Expression != "a" {
+				t.Errorf("bind expr = %q", b.Expression)
+			}
+			if _, isWord := b.Test.(ast.Word); !isWord {
+				t.Errorf("bind test = %T, want Word", b.Test)
+			}
+		case ast.IfBlock:
+			sawIf = true
+		}
+	}
+	if !sawBind || !sawIf {
+		t.Errorf("missing nodes: bind=%v if=%v", sawBind, sawIf)
+	}
+}
+
+// A bind's paren test literal parses as a Paren (this drives IN-list expansion at render).
+func TestParse_ParenTest(t *testing.T) {
+	n, _ := Parse("id in /*ids*/(1, 2)")
 	st := n.(ast.Statement)
-	bv := st.Nodes[0].(ast.BindValue)
-	if _, ok := bv.Test.(ast.Word); !ok {
-		t.Errorf("bind test value: want Word, got %T", bv.Test)
-	}
-	// bind value: test value is a Paren
-	n, _ = Parse("/* age */(1,2,3)")
-	bv = n.(ast.Statement).Nodes[0].(ast.BindValue)
-	if _, ok := bv.Test.(ast.Paren); !ok {
-		t.Errorf("bind test value: want Paren, got %T", bv.Test)
-	}
-	// set: left and right are statements
-	n, _ = Parse("select * from a union select * from b")
-	set := n.(ast.Set)
-	if _, ok := set.Left.(ast.Statement); !ok {
-		t.Errorf("set.Left: want Statement, got %T", set.Left)
-	}
-	if _, ok := set.Right.(ast.Statement); !ok {
-		t.Errorf("set.Right: want Statement, got %T", set.Right)
-	}
-	// partial name
-	n, _ = Parse("/*> orderBy */")
-	p := n.(ast.Statement).Nodes[0].(ast.Partial)
-	if p.Name != "orderBy" {
-		t.Errorf("partial name: got %q", p.Name)
-	}
-}
-
-func TestParse_forDirectiveSplit(t *testing.T) {
-	cases := []struct{ src, id, expr string }{
-		{"/*%for item in items*/ b /*%end*/", "item", "items"},
-		{"/*%for index in indexes*/ b /*%end*/", "index", "indexes"},
-		{"/*%for line in lines*/ b /*%end*/", "line", "lines"},
-		{"/*%for x in xs.filter { it in ys }*/ b /*%end*/", "x", "xs.filter { it in ys }"},
-	}
-	for _, c := range cases {
-		n, err := Parse(c.src)
-		if err != nil {
-			t.Fatalf("Parse(%q): %v", c.src, err)
-		}
-		fb := n.(ast.Statement).Nodes[0].(ast.ForBlock)
-		if fb.For.Identifier != c.id || fb.For.Expression != c.expr {
-			t.Errorf("for %q: id=%q expr=%q, want id=%q expr=%q", c.src, fb.For.Identifier, fb.For.Expression, c.id, c.expr)
+	for _, c := range st.Nodes {
+		if b, ok := c.(ast.BindValue); ok {
+			if _, isParen := b.Test.(ast.Paren); !isParen {
+				t.Errorf("paren-test bind Test = %T, want Paren", b.Test)
+			}
+			return
 		}
 	}
+	t.Fatal("no BindValue found")
 }
 
-func TestParse_errors(t *testing.T) {
+func TestParse_Errors(t *testing.T) {
 	for _, src := range []string{
-		"/* */",             // empty bind expression
-		"/*# */",            // empty embedded expression
-		"/*^ */",            // empty literal expression
-		"/* aaa */",         // test value must follow bind
-		"/*^ aaa */",        // test value must follow literal
-		"select date(",      // close paren not found
-		"/*%if aaa*/ a",     // missing end
-		"/*%elseif aaa*/ a", // elseif without if
-		"/*%else*/ a",       // else without if
-		"/*%end*/ a",        // end without block
-		"/*%if */",          // empty if expression
-		"/*%elseif */",      // empty elseif expression
-		"/*%if aaa*/ b /*%else*/ c /*%elseif d*/ e /*%end*/", // elseif after else
-		"/*%if aaa*/ b /*%else*/ c /*%else*/ d /*%end*/",     // double else
-		"/*%for a in aaa*/ b",                                // for missing end
-		"/*%for */",                                          // for empty statement
+		"select * from (select 1",         // unbalanced open paren
+		"select 1)",                       // stray close paren
+		"select 1 /*%if a*/x",             // if without end
+		"select 1 /*%end*/",               // end without block
+		"select 1 /*%elseif a*/x/*%end*/", // elseif without if
+		"select /* */x",                   // empty bind expression
+		"select /*%for x*/y/*%end*/",      // for without "in"
+		"select /*a*/ from t",             // a space (not a Word/Paren) follows the bind: no test literal
 	} {
-		t.Run(src, func(t *testing.T) { mustErr(t, src) })
+		if _, err := Parse(src); err == nil {
+			t.Errorf("expected error for %q", src)
+		}
 	}
 }

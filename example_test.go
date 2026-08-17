@@ -7,8 +7,8 @@ import (
 	"github.com/mpyw/bisql/dialect"
 )
 
-// The bind directive /* expr */ becomes a placeholder; the literal after it (here 'x') is
-// the 2-way test value, ignored at build time but keeping the raw template runnable.
+// A bind directive /* expr */ becomes a placeholder; the literal after it (here 'x') is the
+// 2-way test value, ignored at build time but keeping the raw template runnable.
 func Example() {
 	tmpl, err := bisql.Parse("select name from person where name = /*name*/'x'")
 	if err != nil {
@@ -25,50 +25,49 @@ func Example() {
 	// [SCOTT]
 }
 
-// An /*%if*/ whose condition is false drops its content, and the empty WHERE clause is
-// removed along with any dangling connector.
-func Example_conditionalClauseRemoval() {
-	const t = "select name from person where /*%if name != null*/name = /*name*/'x'/*%end*/ order by name"
+// The engine removes nothing implicitly, so a dynamic WHERE anchors with 1 = 1 and each
+// condition carries its own leading AND. Absent conditions simply render nothing.
+func Example_dynamicWhere() {
+	const t = "select * from person where 1 = 1" +
+		" /*%if name != null*/and name = /*name*/'x'/*%end*/" +
+		" /*%if minAge != null*/and age >= /*minAge*/0/*%end*/"
 	tmpl, _ := bisql.Parse(t)
 
-	with, _ := tmpl.Build(map[string]any{"name": "SCOTT"})
-	fmt.Printf("%q\n", with.SQL)
+	full, _ := tmpl.Build(map[string]any{"name": "SCOTT", "minAge": 20})
+	fmt.Printf("%q %v\n", full.SQL, full.Args)
 
-	without, _ := tmpl.Build(map[string]any{"name": nil})
-	fmt.Printf("%q\n", without.SQL)
+	none, _ := tmpl.Build(map[string]any{})
+	fmt.Printf("%q\n", none.SQL)
 	// Output:
-	// "select name from person where name = ? order by name"
-	// "select name from person   order by name"
+	// "select * from person where 1 = 1 and name = ? and age >= ?" [SCOTT 20]
+	// "select * from person where 1 = 1  "
 }
 
-// Partials factor a template into named, reusable fragments. Unlike Komapper's raw embed,
-// the fragment is re-parsed, so /*%if*/ and binds inside it work — recursively.
-func Example_partial() {
-	ld := bisql.NewLoader()
-	ld.Register("active", `/*%if activeOnly*/retired = /*zero*/0/*%end*/`)
+// A scalar test literal binds a slice as ONE array parameter (Postgres = ANY), avoiding a
+// variable number of placeholders.
+func Example_arrayBind() {
+	tmpl, _ := bisql.Parse(
+		"select * from t where id = ANY(/*ids*/'{}'::int[])",
+		bisql.WithDialect(dialect.PostgreSQL),
+	)
+	stmt, _ := tmpl.Build(map[string]any{"ids": []int{10, 20, 30}})
+	fmt.Println(stmt.SQL)
+	fmt.Println(stmt.Args)
+	// Output:
+	// select * from t where id = ANY($1::int[])
+	// [[10 20 30]]
+}
 
-	tmpl, err := ld.Parse("select emp_no from employees where /*> active */")
-	if err != nil {
-		panic(err)
-	}
+// @include composes static fragments as a preprocessing step; Expand returns the resolved,
+// still-2-way SQL.
+func Example_include() {
+	ld := bisql.NewRegistry().Register("active", "/*%if activeOnly*/retired = /*zero*/0/*%end*/")
+
+	tmpl, _ := bisql.Parse("select emp_no from employees where /*%! @include active */ 1 = 1", bisql.WithLoader(ld))
 	stmt, _ := tmpl.Build(map[string]any{"activeOnly": true, "zero": 0})
 	fmt.Println(stmt.SQL)
 	fmt.Println(stmt.Args)
 	// Output:
-	// select emp_no from employees where retired = ?
+	// select emp_no from employees where retired = ? 1 = 1
 	// [0]
-}
-
-// WithDialect selects placeholder style; a list bind expands to an IN list.
-func Example_dialect() {
-	tmpl, _ := bisql.Parse(
-		"select name from person where id in /*ids*/(1, 2)",
-		bisql.WithDialect(dialect.PostgreSQL),
-	)
-	stmt, _ := tmpl.Build(map[string]any{"ids": []any{10, 20, 30}})
-	fmt.Println(stmt.SQL)
-	fmt.Println(stmt.Args)
-	// Output:
-	// select name from person where id in ($1, $2, $3)
-	// [10 20 30]
 }

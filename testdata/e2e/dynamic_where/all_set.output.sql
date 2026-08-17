@@ -1,5 +1,5 @@
 select * from person
-where
- name = ?
+where 1 = 1
+and name = ?
 and age > ?
 and id in (?, ?, ?)

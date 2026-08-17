@@ -1,11 +1,13 @@
 // Package token defines the token kinds of the SQL template layer.
 //
-// bisql does not parse SQL as a grammar. It only recognizes clause keywords,
-// logical/set operators, parentheses, string literals, and directive comments;
-// everything else passes through as Word / Other / Space. See docs/komapper-analysis.md.
+// bisql does not parse SQL as a grammar and recognizes no clause keywords or connectors:
+// it removes nothing implicitly (the explicit-model design; see docs/design.md). The lexer
+// only distinguishes directive comments, plain comments, string literals, and parentheses
+// (needed to delimit a bind directive's test value and to detect IN-list expansion);
+// everything else passes through as Word / Other / Space / Eol.
 package token
 
-// Kind is a token kind. Ported from Komapper's SqlTokenType.
+// Kind is a token kind.
 type Kind int
 
 const (
@@ -27,33 +29,12 @@ const (
 	// directives
 	BindValue     // /* expr */literal
 	LiteralValue  // /*^ expr */literal
-	EmbeddedValue // /*# expr */
-	ParserComment // /*%! ... */
-	Partial       // /*> name */ (Komapper-compatible partial; bisql uses it as include)
+	ParserComment // /*%! ... */ (also hosts the @include preprocessor directive)
 	If            // /*%if e*/
 	Elseif        // /*%elseif e*/
 	Else          // /*%else*/
 	For           // /*%for x in xs*/
-	With          // /*%with e*/
 	End           // /*%end*/
-
-	// clause keywords
-	Select
-	From
-	Where
-	GroupBy
-	Having
-	OrderBy
-	ForUpdate
-	Option
-
-	// logical / set operators
-	And
-	Or
-	Union
-	Minus
-	Except
-	Intersect
 
 	// opaque tokens
 	Word  // identifiers, keywords, numbers: the SQL body

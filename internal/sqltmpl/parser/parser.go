@@ -1,6 +1,8 @@
-// Package parser builds the shallow structural tree from a SQL template, using a
-// reducer-stack strategy to fold clauses, operators, and blocks
-// (ported from Komapper's SqlParser; see docs/komapper-analysis.md).
+// Package parser builds the template tree from a SQL template using a reducer-stack
+// strategy for the block directives (if/for) and the bind/literal test literals.
+//
+// It does not parse SQL as a grammar and recognizes no clauses or connectors: everything
+// that is not a directive or comment is opaque text (Word / Other / Space / Eol / Paren).
 package parser
 
 import (
@@ -13,10 +15,9 @@ import (
 	"github.com/mpyw/bisql/internal/sqltmpl/token"
 )
 
-// Parse turns a template string into the shallow structural tree. bisql parses a single
-// statement: a delimiter (;) terminates it, and the delimiter plus anything after it are
-// discarded (matching Komapper's SqlParser). The result satisfies node.Text() == src,
-// except that parser-level comments (/*%! ... */) and a trailing delimiter are dropped.
+// Parse turns a template string into the template tree. The result satisfies
+// node.Text() == src, except that parser-level comments (/*%! ... */) and a trailing
+// delimiter (;) are dropped.
 func Parse(src string) (ast.Node, error) {
 	p := &parser{lex: lexer.New(src)}
 	p.push(&statementReducer{})
@@ -93,33 +94,6 @@ func (p *parser) parse() (ast.Node, error) {
 			p.pushNode(ast.Eol{Token: p.tok})
 		case token.MultiLineComment, token.SingleLineComment:
 			p.pushNode(ast.Comment{Token: p.tok})
-		case token.Select:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseSelect, keyword: p.tok})
-		case token.From:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseFrom, keyword: p.tok})
-		case token.Where:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseWhere, keyword: p.tok})
-		case token.Having:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseHaving, keyword: p.tok})
-		case token.GroupBy:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseGroupBy, keyword: p.tok})
-		case token.OrderBy:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseOrderBy, keyword: p.tok})
-		case token.ForUpdate:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseForUpdate, keyword: p.tok})
-		case token.Option:
-			p.push(&clauseReducer{loc: p.loc, kind: ast.ClauseOption, keyword: p.tok})
-		case token.And:
-			p.push(&logicalReducer{loc: p.loc, kind: ast.LogicalAnd, keyword: p.tok})
-		case token.Or:
-			p.push(&logicalReducer{loc: p.loc, kind: ast.LogicalOr, keyword: p.tok})
-		case token.Union, token.Except, token.Minus, token.Intersect:
-			node, err := p.reduceAll()
-			if err != nil {
-				return nil, err
-			}
-			p.push(&setReducer{loc: p.loc, keyword: p.tok, left: node})
-			p.push(&statementReducer{})
 		case token.BindValue:
 			if err := p.parseBind(); err != nil {
 				return nil, err
@@ -128,18 +102,6 @@ func (p *parser) parse() (ast.Node, error) {
 			if err := p.parseLiteral(); err != nil {
 				return nil, err
 			}
-		case token.EmbeddedValue:
-			expr := strip(p.tok, "/*#", "*/")
-			if expr == "" {
-				return nil, p.errf("expression is not found in the embedded value directive")
-			}
-			p.pushNode(ast.EmbeddedValue{Loc: p.loc, Token: p.tok, Expression: expr})
-		case token.Partial:
-			name := strip(p.tok, "/*>", "*/")
-			if name == "" {
-				return nil, p.errf("expression is not found in the partial directive")
-			}
-			p.pushNode(ast.Partial{Loc: p.loc, Token: p.tok, Name: name})
 		case token.If:
 			if err := p.parseIf(); err != nil {
 				return nil, err
@@ -158,10 +120,6 @@ func (p *parser) parse() (ast.Node, error) {
 			}
 		case token.For:
 			if err := p.parseFor(); err != nil {
-				return nil, err
-			}
-		case token.With:
-			if err := p.parseWith(); err != nil {
 				return nil, err
 			}
 		case token.ParserComment:
@@ -229,7 +187,7 @@ func (p *parser) parseEnd() error {
 		return err
 	}
 	if p.empty() {
-		return p.errf("the corresponding if, for, or with directive is not found")
+		return p.errf("the corresponding if or for directive is not found")
 	}
 	p.pushNode(ast.EndDirective{Loc: p.loc, Token: p.tok})
 	block := p.pop()
@@ -260,19 +218,100 @@ func (p *parser) parseFor() error {
 	if expr == "" {
 		return p.errf("the iterable expression is not found in the for directive")
 	}
+	iter, sep, err := splitForSeparator(expr)
+	if err != nil {
+		return p.errf("%s", err)
+	}
+	if iter == "" {
+		return p.errf("the iterable expression is not found in the for directive")
+	}
 	p.push(&forBlockReducer{loc: p.loc})
-	p.push(&forDirectiveReducer{loc: p.loc, token: p.tok, id: id, expr: expr})
+	p.push(&forDirectiveReducer{loc: p.loc, token: p.tok, id: id, expr: iter, sep: sep})
 	return nil
 }
 
-func (p *parser) parseWith() error {
-	expr := strings.TrimSpace(strings.TrimPrefix(strip(p.tok, "/*%", "*/"), "with"))
-	if expr == "" {
-		return p.errf("the expression is not found in the with directive")
+// splitForSeparator splits an optional trailing `: '<sep>'` separator clause off the for
+// iterable expression. The separator is a constant string literal — not an expression: it is
+// emitted verbatim between iterations, so allowing a runtime value would be raw-text
+// injection. It is single- or double-quoted, with the quote doubled to escape it (” or "").
+//
+// The clause is introduced by a colon at the top level of the expression. Colons inside
+// strings and inside (), [], or {} are ignored, so the expression's own uses of ':' (a
+// ternary a ? b : c, a slice x[1:2], a map {k: v}) do not trigger it; parenthesize such an
+// expression if it would otherwise expose a top-level colon. When a top-level colon is
+// present but its tail is not a well-formed quoted literal, that is an error (rather than a
+// silently mis-parsed iterable).
+func splitForSeparator(expr string) (iter, sep string, err error) {
+	colon := -1
+	depth := 0
+	var quote byte // 0 when outside a string, else the open quote (' or ")
+scan:
+	for i := 0; i < len(expr); i++ {
+		c := expr[i]
+		if quote != 0 {
+			if c == quote {
+				if i+1 < len(expr) && expr[i+1] == quote {
+					i++ // doubled-quote escape
+					continue
+				}
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			if depth > 0 {
+				depth--
+			}
+		case ':':
+			if depth == 0 {
+				colon = i
+				break scan
+			}
+		}
 	}
-	p.push(&withBlockReducer{loc: p.loc})
-	p.push(&withDirectiveReducer{loc: p.loc, token: p.tok, expr: expr})
-	return nil
+	if colon < 0 {
+		return expr, "", nil
+	}
+	tail := strings.TrimSpace(expr[colon+1:])
+	s, ok := unquote(tail)
+	if !ok {
+		return "", "", fmt.Errorf("the for separator must be a quoted string literal, got %q", tail)
+	}
+	return strings.TrimSpace(expr[:colon]), s, nil
+}
+
+// unquote unquotes a single- or double-quoted string literal, with the quote doubled to
+// escape it (” or ""). It reports false when s is not exactly one complete such literal.
+func unquote(s string) (string, bool) {
+	if len(s) < 2 {
+		return "", false
+	}
+	q := s[0]
+	if q != '\'' && q != '"' {
+		return "", false
+	}
+	if s[len(s)-1] != q {
+		return "", false
+	}
+	inner := s[1 : len(s)-1]
+	var b strings.Builder
+	for i := 0; i < len(inner); i++ {
+		if inner[i] == q {
+			if i+1 < len(inner) && inner[i+1] == q {
+				b.WriteByte(q)
+				i++
+				continue
+			}
+			return "", false // an unescaped quote ends the literal early
+		}
+		b.WriteByte(inner[i])
+	}
+	return b.String(), true
 }
 
 func (p *parser) reduceUntil(pred func(reducer) bool) error {

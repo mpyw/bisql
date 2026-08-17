@@ -11,18 +11,16 @@ import (
 	"github.com/mpyw/bisql/dialect"
 )
 
-// Complex, realistic end-to-end scenarios. The templates with non-trivial control
-// structure live as readable .sql files under testdata/, and their expected output is
-// checked against golden files there. Regenerate the goldens with:
+// Complex, realistic end-to-end scenarios. Each template lives as a readable .sql file under
+// testdata/e2e/<template>/input.sql; its expected output is checked against per-case golden
+// files (pure SQL, so they keep a .sql extension and stay highlightable):
 //
-//	go test ./... -run TestE2E -update
+//	testdata/e2e/<template>/<case>.output.sql    (placeholder form)
+//	testdata/e2e/<template>/<case>.embedded.sql  (values-embedded form, when checked)
+//
+// Regenerate with: go test ./... -run TestE2E -update
 var update = flag.Bool("update", false, "update golden files in testdata/")
 
-// e2eDir is the directory holding one template's input and golden outputs:
-//
-//	testdata/e2e/<template>/input.sql
-//	testdata/e2e/<template>/<case>.output.sql        (placeholder form)
-//	testdata/e2e/<template>/<case>.embedded.sql      (values-embedded form, when checked)
 func e2eDir(template string) string { return filepath.Join("testdata", "e2e", template) }
 
 func readFileString(t *testing.T, path string) string {
@@ -34,8 +32,6 @@ func readFileString(t *testing.T, path string) string {
 	return string(b)
 }
 
-// checkGolden compares (or, with -update, writes) one golden file. Golden files are pure
-// SQL so they keep a .sql extension and stay syntax-highlightable.
 func checkGolden(t *testing.T, path, got string) {
 	t.Helper()
 	if *update {
@@ -53,10 +49,6 @@ func checkGolden(t *testing.T, path, got string) {
 	}
 }
 
-// goldenCase drives one template across named parameter sets. Each case goldens the
-// placeholder-form SQL to <case>.output.sql, asserts its bind args inline (short, and not
-// SQL), and — when embedded is set — goldens the values-embedded form (the runnable 2-way
-// SQL) to <case>.embedded.sql.
 type goldenCase struct {
 	name     string
 	opts     []bisql.Option
@@ -84,150 +76,45 @@ func runGolden(t *testing.T, template string, cases []goldenCase) {
 			}
 			checkGolden(t, filepath.Join(dir, c.name+".output.sql"), stmt.SQL)
 			if c.embedded {
-				checkGolden(t, filepath.Join(dir, c.name+".embedded.sql"), stmt.SQLWithArgs)
+				checkGolden(t, filepath.Join(dir, c.name+".embedded.sql"), stmt.SQLWithArgs())
 			}
 		})
 	}
 }
 
-// bisql removes an empty WHERE and drops a dangling leading AND natively, so no 1=1 crutch
-// is needed: all conditions written as "and X".
+func pg() []bisql.Option { return []bisql.Option{bisql.WithDialect(dialect.PostgreSQL)} }
+
 func TestE2EDynamicWhere(t *testing.T) {
 	runGolden(t, "dynamic_where", []goldenCase{
 		{name: "all_set", params: map[string]any{"name": "SCOTT", "age": 20, "ids": []any{1, 2, 3}}, args: []any{"SCOTT", 20, 1, 2, 3}, embedded: true},
 		{name: "age_only", params: map[string]any{"age": 20}, args: []any{20}, embedded: true},
-		{name: "none_set", params: map[string]any{}},
+		{name: "none", params: map[string]any{}},
 	})
 }
 
-// No /*%if sorts != null*/ guard: a for-loop over a nil/absent iterable is zero iterations,
-// so the empty ORDER BY drops natively.
-func TestE2EDynamicOrderBy(t *testing.T) {
-	runGolden(t, "dynamic_order_by", []goldenCase{
-		{name: "with_sorts", params: map[string]any{"sorts": []any{"name asc", "age desc"}}},
-		{name: "no_sorts", params: map[string]any{}},
+// Keyword search: 1=0 OR-anchor + a for-loop whose body is a self-contained "OR (...)" with
+// three /* kw */ binds per keyword. Checked on MySQL and Postgres (locks global numbering)
+// and with an empty keyword list.
+func TestE2EKeywordSearch(t *testing.T) {
+	kws := map[string]any{"keywords": []any{"%a%", "%b%"}}
+	runGolden(t, "keyword_search", []goldenCase{
+		{name: "mysql_two", params: kws, args: []any{"%a%", "%a%", "%a%", "%b%", "%b%", "%b%"}},
+		{name: "postgres_two", opts: pg(), params: kws, args: []any{"%a%", "%a%", "%a%", "%b%", "%b%", "%b%"}},
+		{name: "empty", params: map[string]any{"keywords": []any{}}},
 	})
 }
 
-func TestE2EForAndJoin(t *testing.T) {
-	runGolden(t, "for_and_join", []goldenCase{
-		{name: "three", params: map[string]any{"conds": []any{1, 2, 3}}, args: []any{1, 2, 3}, embedded: true},
-		{name: "none", params: map[string]any{}}, // nil conds -> WHERE drops
-	})
-}
-
-// The all-in-one across dialects also locks placeholder numbering across the CTE, WHERE,
-// and IN (the shape the numbering bug corrupted).
+// All-in-one across all four dialects (locks placeholder numbering across CTE + WHERE + IN),
+// plus a values-embedded snapshot.
 func TestE2EAllInOne(t *testing.T) {
-	full := map[string]any{"flag": true, "cols": []any{"p.id", "p.name"}, "name": "SCOTT", "ids": []any{1, 2}, "sorts": []any{"name", "id desc"}}
-	dia := map[string]any{"flag": true, "cols": []any{"p.id"}, "name": "SCOTT", "ids": []any{1, 2}}
-	fullArgs := []any{true, "SCOTT", 1, 2}
+	full := map[string]any{"flag": true, "name": "SCOTT", "ids": []any{1, 2}, "byName": true}
+	dia := map[string]any{"flag": true, "name": "SCOTT", "ids": []any{1, 2}, "byName": true}
+	args := []any{true, "SCOTT", 1, 2}
 	runGolden(t, "all_in_one", []goldenCase{
-		{name: "mysql_full", params: full, args: fullArgs, embedded: true},
-		{name: "mysql_min", params: map[string]any{"flag": false, "cols": []any{"p.id"}}, args: []any{false}, embedded: true},
-		{name: "postgres", opts: []bisql.Option{bisql.WithDialect(dialect.PostgreSQL)}, params: dia, args: fullArgs},
-		{name: "oracle", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: dia, args: fullArgs},
-		{name: "sqlserver", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: dia, args: fullArgs},
-	})
-}
-
-// --- shorter cases kept inline (no complex control structure) ---
-
-func TestE2ECTE(t *testing.T) {
-	runBuild(t, nil, []buildCase{
-		{
-			name:     "simple cte",
-			tmpl:     "with cte as (select id from users where active = /*active*/true) select id from cte order by id",
-			params:   map[string]any{"active": true},
-			sql:      "with cte as (select id from users where active = ?) select id from cte order by id",
-			args:     []any{true},
-			withArgs: "with cte as (select id from users where active = true) select id from cte order by id",
-		},
-		{
-			name:   "recursive cte",
-			tmpl:   "with recursive t(n) as (select 1 union all select n+1 from t where n < /*max*/10) select n from t",
-			params: map[string]any{"max": 10},
-			sql:    "with recursive t(n) as (select 1 union all select n+1 from t where n < ?) select n from t",
-			args:   []any{10},
-		},
-		{
-			name:   "cte with dynamic inner where removed",
-			tmpl:   "with cte as (select id, name from users where /*%if name != null*/name = /*name*/'x'/*%end*/) select * from cte",
-			params: map[string]any{"name": nil},
-			sql:    "with cte as (select id, name from users ) select * from cte",
-		},
-	})
-}
-
-func TestE2ERecursiveIncludes(t *testing.T) {
-	t.Run("nested partials a->b->c", func(t *testing.T) {
-		ld := bisql.NewLoader()
-		ld.Register("a", "x = 1 /*> b */")
-		ld.Register("b", "and y = 2 /*> c */")
-		ld.Register("c", "and z = 3")
-		tmpl, err := ld.Parse("select * from t where /*> a */")
-		if err != nil {
-			t.Fatal(err)
-		}
-		stmt, _ := tmpl.Build(nil)
-		if stmt.SQL != "select * from t where x = 1 and y = 2 and z = 3" {
-			t.Errorf("got %q", stmt.SQL)
-		}
-	})
-
-	t.Run("partial containing an embed", func(t *testing.T) {
-		ld := bisql.NewLoader()
-		ld.Register("frag", "col = /*# raw */")
-		tmpl, err := ld.Parse("select /*> frag */ from t")
-		if err != nil {
-			t.Fatal(err)
-		}
-		stmt, _ := tmpl.Build(map[string]any{"raw": "computed"})
-		if stmt.SQL != "select col = computed from t" {
-			t.Errorf("got %q", stmt.SQL)
-		}
-	})
-
-	t.Run("embed producing a partial reference", func(t *testing.T) {
-		ld := bisql.NewLoader()
-		ld.Register("cond", "active = /*a*/true")
-		tmpl, err := ld.Parse("select * from t where /*# dyn */")
-		if err != nil {
-			t.Fatal(err)
-		}
-		stmt, err := tmpl.Build(map[string]any{"dyn": "/*> cond */", "a": true})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if stmt.SQL != "select * from t where active = ?" || !reflect.DeepEqual(stmt.Args, []any{true}) {
-			t.Errorf("SQL=%q Args=%#v", stmt.SQL, stmt.Args)
-		}
-	})
-
-	t.Run("embed producing a bind", func(t *testing.T) {
-		tmpl, err := bisql.Parse("select * from t where /*# dyn */")
-		if err != nil {
-			t.Fatal(err)
-		}
-		stmt, err := tmpl.Build(map[string]any{"dyn": "a = /*x*/1", "x": 99})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if stmt.SQL != "select * from t where a = ?" || !reflect.DeepEqual(stmt.Args, []any{99}) {
-			t.Errorf("SQL=%q Args=%#v", stmt.SQL, stmt.Args)
-		}
-	})
-}
-
-// Known authoring gotcha, pinned: an empty grouping paren is not removed (it is
-// indistinguishable from a call like count()); guard a dynamic group with an outer if.
-func TestE2EEmptyGroupingParens(t *testing.T) {
-	runBuild(t, nil, []buildCase{
-		{
-			name:   "kept",
-			tmpl:   "select * from t where (/*%if a*/a = 1/*%end*/)",
-			params: map[string]any{"a": false},
-			sql:    "select * from t where ()",
-		},
+		{name: "mysql_full", params: full, args: args, embedded: true},
+		{name: "mysql_min", params: map[string]any{"flag": false}, args: []any{false}, embedded: true},
+		{name: "postgres", opts: pg(), params: dia, args: args},
+		{name: "oracle", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: dia, args: args},
+		{name: "sqlserver", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: dia, args: args},
 	})
 }

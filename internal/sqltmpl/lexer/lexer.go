@@ -1,9 +1,9 @@
-// Package lexer scans a SQL template into tokens. Ported from Komapper's SqlTokenizer
-// (see docs/komapper-analysis.md).
+// Package lexer scans a SQL template into tokens.
 //
-// It does not parse SQL as a grammar: it recognizes clause keywords, logical/set
-// operators, parentheses, string literals, and directive comments; everything else is a
-// Word / Other / Space. Directive kind is decided by branching right after "/*".
+// It does not parse SQL as a grammar and recognizes no clause keywords or connectors: it
+// distinguishes directive comments (/* */ variants), plain comments, string literals, and
+// parentheses; everything else is a Word / Other / Space / Eol. Directive kind is decided
+// by branching right after "/*".
 package lexer
 
 import (
@@ -104,8 +104,10 @@ func (l *Lexer) scan() token.Kind {
 	case ')':
 		l.pos++
 		return token.CloseParen
-	case '\'':
-		return l.scanQuote()
+	case '\'', '"', '`':
+		// '...' string literal, "..." / `...` quoted identifier. All are opaque spans; we
+		// only need to skip their contents so an inner ' or /* is not mis-lexed.
+		return l.scanQuoted(c)
 	}
 
 	// -- line comment (before treating '-' as Other)
@@ -126,11 +128,6 @@ func (l *Lexer) scan() token.Kind {
 		return l.scanSlashStar()
 	}
 
-	// Keywords (case-insensitive, must be word-terminated).
-	if k, ok := l.scanKeyword(); ok {
-		return k
-	}
-
 	// A word (identifier / keyword-like / number), possibly absorbing a '...' literal.
 	if isWordStart(l.src, l.pos) {
 		return l.scanWord()
@@ -149,13 +146,16 @@ func (l *Lexer) peekAt(i int) byte {
 	return l.src[i]
 }
 
-func (l *Lexer) scanQuote() token.Kind {
-	// Assumes src[pos] == '\''.
+// scanQuoted scans a quoted span opened by quote (', ", or `). The quote char is escaped by
+// doubling it (SQL standard: ” "" “). Backslash escaping (MySQL default) is not handled;
+// use doubling in templates.
+func (l *Lexer) scanQuoted(quote byte) token.Kind {
+	// Assumes src[pos] == quote.
 	l.pos++ // opening quote
 	for l.pos < len(l.src) {
-		if l.src[l.pos] == '\'' {
-			if l.peekAt(l.pos+1) == '\'' {
-				l.pos += 2 // escaped ''
+		if l.src[l.pos] == quote {
+			if l.peekAt(l.pos+1) == quote {
+				l.pos += 2 // escaped (doubled) quote
 				continue
 			}
 			l.pos++ // closing quote
@@ -163,7 +163,7 @@ func (l *Lexer) scanQuote() token.Kind {
 		}
 		l.pos++
 	}
-	return l.fail("unterminated string literal")
+	return l.fail("unterminated quoted literal")
 }
 
 // scanSlashStar handles everything beginning with "/*": directives and plain block
@@ -174,10 +174,6 @@ func (l *Lexer) scanSlashStar() token.Kind {
 	switch {
 	case c == '^':
 		kind = token.LiteralValue
-	case c == '#':
-		kind = token.EmbeddedValue
-	case c == '>':
-		kind = token.Partial
 	case c == '%':
 		k, ok := l.directiveNameKind()
 		if !ok {
@@ -217,8 +213,6 @@ func (l *Lexer) directiveNameKind() (token.Kind, bool) {
 		return token.Else, true
 	case "for":
 		return token.For, true
-	case "with":
-		return token.With, true
 	case "end":
 		return token.End, true
 	default:
@@ -246,98 +240,6 @@ func (l *Lexer) consumeToStarSlash() bool {
 	return false
 }
 
-// scanKeyword tries the SQL keywords, longest first, requiring word termination.
-// It returns ok=false if none match (pos unchanged).
-func (l *Lexer) scanKeyword() (token.Kind, bool) {
-	// multi-word first
-	if n, ok := l.matchWords("for", "update"); ok {
-		l.pos += n
-		return token.ForUpdate, true
-	}
-	if n, ok := l.matchWords("group", "by"); ok {
-		l.pos += n
-		return token.GroupBy, true
-	}
-	if n, ok := l.matchWords("order", "by"); ok {
-		l.pos += n
-		return token.OrderBy, true
-	}
-	// option ( -- keyword only when followed by space(s)? Komapper requires exactly
-	// "option" + one space + "(". Token is just "option".
-	if n, ok := l.matchOption(); ok {
-		l.pos += n
-		return token.Option, true
-	}
-	for _, kw := range []struct {
-		word string
-		kind token.Kind
-	}{
-		{"intersect", token.Intersect},
-		{"select", token.Select},
-		{"having", token.Having},
-		{"except", token.Except},
-		{"where", token.Where},
-		{"union", token.Union},
-		{"minus", token.Minus},
-		{"from", token.From},
-		{"and", token.And},
-		{"or", token.Or},
-	} {
-		if l.matchWord(kw.word) {
-			l.pos += len(kw.word)
-			return kw.kind, true
-		}
-	}
-	return token.EOF, false
-}
-
-// matchWord reports whether src[pos:] case-insensitively starts with word and is
-// word-terminated.
-func (l *Lexer) matchWord(word string) bool {
-	if !hasFoldPrefix(l.src, l.pos, word) {
-		return false
-	}
-	return wordTerminated(l.src, l.pos+len(word))
-}
-
-// matchWords matches "a<space>b" where the space is a single space char; returns the total
-// byte length consumed.
-func (l *Lexer) matchWords(a, b string) (int, bool) {
-	p := l.pos
-	if !hasFoldPrefix(l.src, p, a) {
-		return 0, false
-	}
-	p += len(a)
-	if p >= len(l.src) || !isSpace(l.src[p]) {
-		return 0, false
-	}
-	p++
-	if !hasFoldPrefix(l.src, p, b) {
-		return 0, false
-	}
-	end := p + len(b)
-	if !wordTerminated(l.src, end) {
-		return 0, false
-	}
-	return end - l.pos, true
-}
-
-// matchOption matches "option" + one space + "(", consuming only "option".
-func (l *Lexer) matchOption() (int, bool) {
-	p := l.pos
-	if !hasFoldPrefix(l.src, p, "option") {
-		return 0, false
-	}
-	q := p + len("option")
-	if q >= len(l.src) || !isSpace(l.src[q]) {
-		return 0, false
-	}
-	if q+1 >= len(l.src) || l.src[q+1] != '(' {
-		return 0, false
-	}
-	return len("option"), true
-}
-
 // scanWord reads a word, absorbing an embedded '...' string literal if present. It is only
 // entered when isWordStart holds, so the first byte is a valid start. A leading sign of a
 // signed number (+/-) is a valid start but not itself a word-part, so it is consumed
@@ -348,8 +250,8 @@ func (l *Lexer) scanWord() token.Kind {
 	}
 	for l.pos < len(l.src) {
 		c := l.src[l.pos]
-		if c == '\'' {
-			if k := l.scanQuote(); k == token.Illegal {
+		if c == '\'' || c == '"' || c == '`' {
+			if k := l.scanQuoted(c); k == token.Illegal {
 				return token.Illegal
 			}
 			continue
@@ -414,28 +316,6 @@ func isExprIdentStart(src string, i int) bool {
 
 func isLetter(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r >= 0x80
-}
-
-// wordTerminated reports whether the position i is at a word boundary (end of input or a
-// non-word-part char).
-func wordTerminated(src string, i int) bool {
-	if i >= len(src) {
-		return true
-	}
-	return !isWordPart(src[i])
-}
-
-// hasFoldPrefix reports whether src[pos:] starts with prefix, ASCII-case-insensitively.
-func hasFoldPrefix(src string, pos int, prefix string) bool {
-	if pos+len(prefix) > len(src) {
-		return false
-	}
-	for j := 0; j < len(prefix); j++ {
-		if lowerASCII(src[pos+j]) != lowerASCII(prefix[j]) {
-			return false
-		}
-	}
-	return true
 }
 
 func lowerASCII(c byte) byte {
