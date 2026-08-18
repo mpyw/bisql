@@ -122,12 +122,13 @@ func runGoldenInclude(t *testing.T, template, root string, cases []goldenCase) {
 	}
 }
 
-// @include end to end (recursive: input -> _frag/active -> _frag/dept), checking both the
-// expanded two-way text and the rendered (SQL, Args) across dialects and branch selections.
-func TestE2EInclude(t *testing.T) {
-	runGoldenInclude(t, "include_search", "input.sql", []goldenCase{
-		{name: "pg_all", opts: pg(), params: map[string]any{"activeOnly": true, "status": "active", "dept": 3, "name": "Alice"}, args: []any{"active", 3, "Alice"}, embedded: true},
-		{name: "pg_name_only", opts: pg(), params: map[string]any{"name": "Alice"}, args: []any{"Alice"}},
+// Recursive @include end to end: an audit-log report whose WHERE clause is assembled from
+// reusable filter fragments (input -> _frag/status, and input -> _frag/window -> _frag/since).
+// Checks both the expanded two-way text and the rendered (SQL, Args) across branch selections.
+func TestE2EReport(t *testing.T) {
+	runGoldenInclude(t, "report", "input.sql", []goldenCase{
+		{name: "pg_all", opts: pg(), params: map[string]any{"activeOnly": true, "status": "active", "since": "2025-01-01", "until": "2025-12-31"}, args: []any{"active", "2025-01-01", "2025-12-31"}, embedded: true},
+		{name: "pg_since_only", opts: pg(), params: map[string]any{"since": "2025-01-01"}, args: []any{"2025-01-01"}},
 		{name: "mysql_none", params: map[string]any{}},
 	})
 }
@@ -152,44 +153,30 @@ func TestE2EKeywordSearch(t *testing.T) {
 	})
 }
 
-// All-in-one across all four dialects (locks placeholder numbering across CTE + WHERE + IN),
-// with a values-embedded snapshot on one MySQL and one Postgres case.
+// The single integration fixture: one realistic query that exercises every directive kind at
+// once — a CTE bind, an if/elseif/else branch on status, an IN-list bind, a tuple IN (row
+// binds), a /*%for*/ keyword list with a separator, an order-by conditional, and a /*^ */ inline
+// literal. Run across all four dialects on the full case to lock placeholder numbering, plus the
+// pending and else branches with empty/absent inputs, with values-embedded snapshots.
 func TestE2EAllInOne(t *testing.T) {
-	full := map[string]any{"flag": true, "name": "Alice", "ids": []any{1, 2, 3}, "byName": true}
-	args := []any{true, "Alice", 1, 2, 3}
+	full := map[string]any{"flag": true, "status": "active", "ids": []any{1, 2, 3}, "pairs": []any{[]any{1, "active"}}, "keywords": []any{"%ali%", "%bob%"}, "byName": true, "limit": 50}
+	fullArgs := []any{true, 1, 2, 3, 1, "active", "%ali%", "%bob%"}
 	runGolden(t, "all_in_one", []goldenCase{
-		{name: "mysql_full", params: full, args: args, embedded: true},
-		{name: "mysql_min", params: map[string]any{"flag": false}, args: []any{false}, embedded: true},
-		{name: "postgres", opts: pg(), params: full, args: args, embedded: true},
-		{name: "oracle", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: full, args: args},
-		{name: "sqlserver", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: full, args: args},
-	})
-}
-
-// Mixed directives in one realistic query: an if/elseif/else branch on status, a tuple IN (row
-// binds), a /*%for*/ keyword list with a separator, and a /*^ */ inline literal. Checked on
-// Postgres (active + else/banned branches) and MySQL (pending branch, empty keyword list), with
-// embedded snapshots.
-func TestE2EMixed(t *testing.T) {
-	runGolden(t, "mixed", []goldenCase{
-		{
-			name:     "pg_active",
-			opts:     pg(),
-			params:   map[string]any{"status": "active", "pairs": []any{[]any{1, "active"}, []any{2, "pending"}}, "keywords": []any{"%ali%", "%bob%"}, "limit": 50},
-			args:     []any{1, "active", 2, "pending", "%ali%", "%bob%"},
-			embedded: true,
-		},
+		{name: "mysql_full", params: full, args: fullArgs, embedded: true},
+		{name: "postgres_full", opts: pg(), params: full, args: fullArgs, embedded: true},
+		{name: "oracle_full", opts: []bisql.Option{bisql.WithDialect(dialect.Oracle)}, params: full, args: fullArgs},
+		{name: "sqlserver_full", opts: []bisql.Option{bisql.WithDialect(dialect.SQLServer)}, params: full, args: fullArgs},
 		{
 			name:     "mysql_pending",
-			params:   map[string]any{"status": "pending", "pairs": []any{[]any{3, "banned"}}, "keywords": []any{}, "limit": 10},
-			args:     []any{3, "banned"},
+			params:   map[string]any{"flag": false, "status": "pending", "pairs": []any{[]any{3, "banned"}}, "keywords": []any{}, "byName": false, "limit": 10},
+			args:     []any{false, 3, "banned"},
 			embedded: true,
 		},
 		{
-			name:   "pg_banned_else",
+			name:   "pg_else",
 			opts:   pg(),
-			params: map[string]any{"status": "banned", "pairs": []any{[]any{9, "active"}}, "keywords": []any{"%x%"}, "limit": 5},
-			args:   []any{9, "active", "%x%"},
+			params: map[string]any{"flag": false, "status": "banned", "pairs": []any{[]any{9, "active"}}, "keywords": []any{"%x%"}, "byName": false, "limit": 5},
+			args:   []any{false, 9, "active", "%x%"},
 		},
 	})
 }
