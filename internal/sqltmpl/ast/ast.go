@@ -84,8 +84,9 @@ type EndDirective struct {
 
 func (n EndDirective) Text() string { return n.Token }
 
-// ForBlock is /*%for x in xs*/ ... /*%end*/, with an optional `: 'sep'` separator clause
-// (/*%for x in xs : ', '*/) whose value is emitted between iterations at build time.
+// ForBlock is /*%for x in xs*/ ... /*%end*/. The body is emitted once per element with no text
+// inserted between iterations; a list is kept two-way by anchoring it and having each iteration
+// lead with its own connector (see the render package).
 type ForBlock struct {
 	For ForDirective
 	End EndDirective
@@ -98,7 +99,6 @@ type ForDirective struct {
 	Token      string
 	Identifier string
 	Expression string
-	Separator  string // emitted between iterations; empty when no `: 'sep'` clause is given
 	Nodes      []Node
 }
 

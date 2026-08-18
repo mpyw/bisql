@@ -21,10 +21,9 @@ cleanup to the explicit model lives in the git history).
 - **Remove nothing implicitly.** The renderer emits text **verbatim**; it only evaluates
   directives and drops `/*%! ... */` parser comments. No empty-clause removal, no dangling
   `AND`/`OR` cleanup, no whitespace normalization. Predictability over magic. The author
-  anchors dynamic SQL (see Authoring rules). The sole build-time text not present in the body
-  is the `/*%for … : 'sep'*/` separator, emitted between iterations — a bounded, opt-in
-  exception (not general raw-text emission), and absent from a raw paste since the directive is
-  a comment.
+  anchors dynamic SQL (see Authoring rules). The renderer inserts **no** build-time text that
+  is not in the template body — in particular `/*%for*/` inserts nothing between iterations
+  (there is no separator feature); the model is exception-free.
 - **Placeholder numbering is a single renderer-global counter** (`renderer.nargs`), not a
   per-state length — binds in unrendered branches/loops are never counted, so numbering is
   gap-free across every dialect (`$n`/`:n`/`@pn`).
@@ -47,12 +46,13 @@ The engine cleans nothing, so templates must anchor:
 - WHERE/HAVING: `1 = 1` / `1 = 0` anchor; conditions carry a leading `and`/`or`.
 - ORDER BY: trailing stable key (`id`). SELECT/SET column lists: base column + leading comma
   inside `/*%if*/` (whitelist).
-- Lists via `/*%for*/`: declare the separator with the `: 'sep'` clause
-  (`/*%for x in xs : ', '*/`). It is emitted between iterations only and is build-only (the
-  directive is a comment in a raw paste), so anchorless lists — a multi-row `VALUES` clause, a
-  function-arg list — stay two-way. The loop exposes **no** derived variables (no `_index` /
-  `_has_next` / `_next_comma`). A `VALUES` list built this way must be non-empty; for a
-  possibly-empty list use `INSERT … SELECT` with a zero-row `select … where 1 = 0` + `union all`.
+- Lists via `/*%for*/`: the loop inserts nothing between iterations, so a list is anchored like
+  everything else and each iteration leads with its own connector. `AND`/`OR` lists use a
+  `1=1`/`1=0` anchor. Comma/row lists (a multi-row `VALUES`, `jsonb_build_object`) have no
+  anchor slot, so express them as a set — a zero-row `select … where 1 = 0` seed + one
+  `union all select …` per element, consumed by a table source or an aggregate (`jsonb_agg`,
+  `array_agg`). This is empty-safe. The loop exposes **no** derived variables (no `_index` /
+  `_has_next` / `_next_comma`).
 - JOIN/UNION: put the connector inside the `/*%if*/`.
 - Escape quotes by **doubling** (`''` `""` `` `` ``); backslash escapes are not recognized.
 - `/* ... */` is a bind directive → a plain comment must start with a non-identifier char

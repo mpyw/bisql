@@ -155,8 +155,9 @@ func TestE2EKeywordSearch(t *testing.T) {
 
 // The single integration fixture: one realistic query that exercises every directive kind at
 // once — a CTE bind, an if/elseif/else branch on status, an IN-list bind, a tuple IN (row
-// binds), a /*%for*/ keyword list with a separator, an order-by conditional, and a /*^ */ inline
-// literal. Run across all four dialects on the full case to lock placeholder numbering, plus the
+// binds), a /*%for*/ keyword list (each iteration leading with its own "and"), an order-by
+// conditional, and a /*^ */ inline literal. Run across all four dialects on the full case to
+// lock placeholder numbering, plus the
 // pending and else branches with empty/absent inputs, with values-embedded snapshots.
 func TestE2EAllInOne(t *testing.T) {
 	full := map[string]any{"flag": true, "status": "active", "ids": []any{1, 2, 3}, "pairs": []any{[]any{1, "active"}}, "keywords": []any{"%ali%", "%bob%"}, "byName": true, "limit": 50}

@@ -163,6 +163,8 @@ func TestAnchorIdioms(t *testing.T) {
 func TestForLoop(t *testing.T) {
 	run(t, []buildCase{
 		{
+			// An OR list: the 1 = 0 anchor absorbs the leading position and each iteration leads
+			// with its own "or", so an empty list renders just the anchor.
 			name:   "or-anchored keyword list",
 			tmpl:   "where 1 = 0 /*%for kw in kws*/or name like /*kw*/'x'/*%end*/",
 			params: map[string]any{"kws": []any{"%a%", "%b%"}},
@@ -170,71 +172,30 @@ func TestForLoop(t *testing.T) {
 			args:   []any{"%a%", "%b%"},
 		},
 		{
-			name:   "separator between iterations",
-			tmpl:   "select /*%for c in cols : ', '*//*c*/0/*%end*/",
+			// A comma list: a fixed first element (select 0) anchors it, and each iteration leads
+			// with its own comma — the same anchor+leading-connector shape as the OR list.
+			name:   "comma list anchored by a fixed first element",
+			tmpl:   "select 0/*%for c in cols*/, /*c*/0/*%end*/",
 			params: map[string]any{"cols": []any{1, 2, 3}},
-			sql:    "select ?, ?, ?",
+			sql:    "select 0, ?, ?, ?",
 			args:   []any{1, 2, 3},
 		},
 		{
-			name:   "separator with a single element has none",
-			tmpl:   "select /*%for c in cols : ', '*//*c*/0/*%end*/",
-			params: map[string]any{"cols": []any{1}},
-			sql:    "select ?",
-			args:   []any{1},
-		},
-		{
+			// Multi-row VALUES has no anchor position, so it is expressed as a set: a
+			// WHERE 1 = 0 seed (zero rows) plus one "union all select" per row.
 			name:   "multi-row insert via INSERT ... SELECT + union all",
-			tmpl:   "insert into t (a, b) select 0, '' where 1 = 0 /*%for e in rows : ' '*/union all select /*e.a*/0, /*e.b*/1/*%end*/",
+			tmpl:   "insert into t (a, b) select 0, '' where 1 = 0/*%for e in rows*/ union all select /*e.a*/0, /*e.b*/1/*%end*/",
 			params: map[string]any{"rows": []any{map[string]any{"a": 1, "b": 2}, map[string]any{"a": 3, "b": 4}}},
 			sql:    "insert into t (a, b) select 0, '' where 1 = 0 union all select ?, ? union all select ?, ?",
 			args:   []any{1, 2, 3, 4},
 		},
 		{
-			name:   "escaped quote in separator ('''' -> a single quote)",
-			tmpl:   "/*%for c in cols : ''''*//*c*/0/*%end*/",
-			params: map[string]any{"cols": []any{1, 2}},
-			sql:    "?'?",
-			args:   []any{1, 2},
-		},
-		{
-			name:   "double-quoted separator (equivalent to single)",
-			tmpl:   `select /*%for c in cols : ", "*//*c*/0/*%end*/`,
-			params: map[string]any{"cols": []any{1, 2}},
-			sql:    "select ?, ?",
-			args:   []any{1, 2},
-		},
-		{
-			// The separator is a literal, so the colon of an expression construct (here a
-			// slice) is only recognized when not enclosed; xs[0:2] keeps its own colon.
-			name:   "colon inside a slice is not a separator clause",
-			tmpl:   "select /*%for c in cols[0:2] : ', '*//*c*/0/*%end*/",
-			params: map[string]any{"cols": []any{1, 2, 3}},
-			sql:    "select ?, ?",
-			args:   []any{1, 2},
-		},
-		{
 			name:   "empty for renders nothing",
-			tmpl:   "where 1 = 0 /*%for kw in kws : ', '*/or x/*%end*/",
+			tmpl:   "where 1 = 0 /*%for kw in kws*/or x/*%end*/",
 			params: map[string]any{},
 			sql:    "where 1 = 0 ",
 		},
 	})
-}
-
-// The for separator is a literal, not an expression: a non-literal (a bare identifier or an
-// expression) is a parse error, so a runtime value can never be emitted as raw text.
-func TestForSeparatorMustBeLiteral(t *testing.T) {
-	for _, tmpl := range []string{
-		"/*%for c in cols : sep*//*c*/0/*%end*/",       // bare identifier
-		"/*%for c in cols : ',' + ' '*//*c*/0/*%end*/", // expression
-		"/*%for c in cols : 'unterminated*//*c*/0/*%end*/",
-	} {
-		_, err := bisql.Parse(tmpl)
-		if err == nil || !strings.Contains(err.Error(), "separator must be a quoted string literal") {
-			t.Errorf("Parse(%q): want a separator-literal error, got %v", tmpl, err)
-		}
-	}
 }
 
 func TestComments(t *testing.T) {

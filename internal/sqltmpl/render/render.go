@@ -1,6 +1,6 @@
 // Package render evaluates the template tree into (SQL, args). Under the explicit model it
 // removes nothing implicitly: text is emitted verbatim, directives are evaluated in place,
-// and the author anchors clauses (1=1 / trailing id) so no separator is ever left dangling.
+// and the author anchors clauses (1=1 / trailing id) so no connector is ever left dangling.
 package render
 
 import (
@@ -253,14 +253,11 @@ func (r *renderer) visitFor(node ast.ForBlock) error {
 	}
 	id := node.For.Identifier
 	// The loop variable shadows the scope for the loop's duration; save any pre-existing value
-	// and restore it afterwards. The optional separator is emitted between iterations only, so
-	// a raw-pasted template (whose /*%for ... : 'sep'*/ directive is a comment) shows a single
-	// body with no separator — which keeps anchorless lists such as multi-row VALUES two-way.
+	// and restore it afterwards. The body is emitted verbatim for each element, with no text
+	// inserted between iterations: a list is kept two-way by anchoring it (1 = 1 / 1 = 0 /
+	// a WHERE 1 = 0 UNION ALL seed) and having each iteration lead with its own connector.
 	saved, had := r.scope[id]
-	for i, e := range elems {
-		if i > 0 {
-			r.emit(node.For.Separator)
-		}
+	for _, e := range elems {
 		r.scope[id] = e
 		for _, c := range node.For.Nodes {
 			if err := r.visit(c); err != nil {

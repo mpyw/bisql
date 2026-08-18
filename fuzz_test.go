@@ -34,10 +34,10 @@ func FuzzBuild(f *testing.F) {
 		"select /*a*/1::int, ANY(/*b*/'{}'::int[])",
 		"'{}' \"id\" `x` -- c\n/** c2 */",
 		// Enriched seeds:
-		"where a = /*^v*/'x' and b > 1",                  // literal embed
-		"where (a, b) in /*p*/((0, 0))",                  // tuple-IN expansion
-		"select /*%for c in cols : ', '*//*c*/0/*%end*/", // for-loop with separator
-		"where /*%! @include x */ and 1 = 1",             // @include via the fixed loader
+		"where a = /*^v*/'x' and b > 1",              // literal embed
+		"where (a, b) in /*p*/((0, 0))",              // tuple-IN expansion
+		"select 0/*%for c in cols*/, /*c*/0/*%end*/", // for-loop, comma list anchored by a fixed first element
+		"where /*%! @include x */ and 1 = 1",         // @include via the fixed loader
 	}
 	for _, s := range seeds {
 		f.Add(s)
