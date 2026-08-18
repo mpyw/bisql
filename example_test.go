@@ -150,6 +150,35 @@ func Example_dialects() {
 	// sqlserver: select id from users where name = @p1 and age >= @p2
 }
 
+// Build accepts a typed struct as well as a map[string]any, so parameters can be passed with
+// Go's type checking rather than as untyped map values. Exported fields are matched to bind
+// names; an embedded struct's fields are promoted (and also reachable qualified, e.g.
+// Filter.Status).
+func Example_structParams() {
+	type Filter struct {
+		Status string
+		MinAge int
+	}
+	type Params struct {
+		Filter
+		Name string
+	}
+	tmpl, _ := bisql.Parse(
+		"select id from users where 1 = 1" +
+			" and status = /*Status*/'active'" +
+			" and age >= /*MinAge*/0" +
+			" and name like /*Name*/'%x%'",
+	)
+	stmt, _ := tmpl.Build(Params{Filter: Filter{Status: "active", MinAge: 18}, Name: "%ali%"})
+	fmt.Println(stmt.SQL)
+	fmt.Println(stmt.Args)
+	fmt.Println(stmt.SQLWithArgs())
+	// Output:
+	// select id from users where 1 = 1 and status = ? and age >= ? and name like ?
+	// [active 18 %ali%]
+	// select id from users where 1 = 1 and status = 'active' and age >= 18 and name like '%ali%'
+}
+
 // --- Function examples. ---
 
 // Parse compiles a template string into a reusable *Template.
