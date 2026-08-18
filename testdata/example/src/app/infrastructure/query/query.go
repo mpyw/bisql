@@ -1,6 +1,7 @@
 // Package query implements the app/query ports over a *sql.DB, building each statement from the
 // embedded bisql templates (SQLite dialect). The .sql templates live under sql/, organized by
-// domain, with reusable fragments under a fragment/ subdirectory pulled in via @include.
+// domain; reusable fragments are underscore-prefixed (_name.sql) by convention and pulled in via
+// @include. The embed uses the all: prefix so those _-prefixed files are included.
 package query
 
 import (
@@ -16,7 +17,7 @@ import (
 	port "github.com/mpyw/bisql/example/src/app/query"
 )
 
-//go:embed sql
+//go:embed all:sql
 var embedded embed.FS
 
 // templates is the query tree rooted at sql/, so a name like "users/search.sql" resolves and its

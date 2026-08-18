@@ -12,21 +12,23 @@ import (
 	"github.com/mpyw/bisql/dialect"
 )
 
-// TestE2E exercises one comprehensive template that uses every directive kind at once — a CTE
-// bind, a recursive @include of reusable fragments, an if/elseif/else branch, an IN-list bind, a
-// PostgreSQL array bind, a tuple (row) IN, a /*%for*/ loop, an order-by conditional, and a /*^ */
-// inline literal — rendered across all four dialects to lock placeholder numbering.
+// TestSnapshots exercises one comprehensive template that uses every directive kind at once — a
+// CTE bind, a recursive @include of reusable fragments, an if/elseif/else branch, an IN-list
+// bind, a PostgreSQL array bind, a tuple (row) IN, a /*%for*/ loop, an order-by conditional, and
+// a /*^ */ inline literal — rendered across all four dialects to lock placeholder numbering.
 //
-// All fixtures are flat files under testdata/e2e, named by the template and (per case) the case:
+// The template and its fragments live under testdata/; every generated artifact lives under
+// testdata/snapshots/, named by the template and (per case) the case:
 //
-//	all_in_one.sql                  the template (@include-ing all_in_one.scope.sql, which in turn
-//	                                @include-s all_in_one.active.sql)
-//	all_in_one.expanded.sql         every @include resolved (dialect-independent)
-//	all_in_one.<case>.prepared.sql  parameterized SQL (placeholder form)
-//	all_in_one.<case>.embedded.sql  values-embedded SQL (when checked)
+//	testdata/all_in_one.sql                    the template (@include-s _all_in_one.scope.sql,
+//	                                           which in turn @include-s _all_in_one.active.sql)
+//	testdata/_all_in_one.{scope,active}.sql    reusable fragments (underscore-prefixed by convention)
+//	testdata/snapshots/all_in_one.expanded.sql every @include resolved (dialect-independent)
+//	testdata/snapshots/all_in_one.<case>.prepared.sql  parameterized SQL (placeholder form)
+//	testdata/snapshots/all_in_one.<case>.embedded.sql  values-embedded SQL (when checked)
 //
-// Regenerate with: go test -run TestE2E -update
-var update = flag.Bool("update", false, "update golden files in testdata/")
+// Regenerate with: go test -run TestSnapshots -update
+var update = flag.Bool("update", false, "update golden files in testdata/snapshots")
 
 func checkGolden(t *testing.T, path, got string) {
 	t.Helper()
@@ -38,23 +40,23 @@ func checkGolden(t *testing.T, path, got string) {
 	}
 	want, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read golden %s: %v (regenerate with: go test -run TestE2E -update)", path, err)
+		t.Fatalf("read golden %s: %v (regenerate with: go test -run TestSnapshots -update)", path, err)
 	}
 	if got != string(want) {
 		t.Errorf("%s mismatch\n--- got ---\n%s\n--- want ---\n%s", path, got, want)
 	}
 }
 
-func TestE2E(t *testing.T) {
-	const dir = "testdata/e2e"
-	fsys := os.DirFS(dir)
+func TestSnapshots(t *testing.T) {
+	fsys := os.DirFS("testdata")
+	snap := func(name string) string { return filepath.Join("testdata", "snapshots", name) }
 
 	// Expanded snapshot: every @include resolved, still two-way, independent of dialect.
 	expanded, err := bisql.ExpandFile(fsys, "all_in_one.sql")
 	if err != nil {
 		t.Fatalf("expand: %v", err)
 	}
-	checkGolden(t, filepath.Join(dir, "all_in_one.expanded.sql"), expanded)
+	checkGolden(t, snap("all_in_one.expanded.sql"), expanded)
 
 	// The full case supplies every optional predicate; rendered under all four dialects it locks
 	// the placeholder numbering. pg_array adds the PostgreSQL-only array bind; the pending/else
@@ -109,9 +111,9 @@ func TestE2E(t *testing.T) {
 			if !reflect.DeepEqual(stmt.Args, c.args) {
 				t.Errorf("Args\n got: %#v\nwant: %#v", stmt.Args, c.args)
 			}
-			checkGolden(t, filepath.Join(dir, "all_in_one."+c.name+".prepared.sql"), stmt.SQL)
+			checkGolden(t, snap("all_in_one."+c.name+".prepared.sql"), stmt.SQL)
 			if c.embedded {
-				checkGolden(t, filepath.Join(dir, "all_in_one."+c.name+".embedded.sql"), stmt.SQLWithArgs())
+				checkGolden(t, snap("all_in_one."+c.name+".embedded.sql"), stmt.SQLWithArgs())
 			}
 		})
 	}

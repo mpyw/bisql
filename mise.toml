@@ -37,3 +37,12 @@ run = 'go test -coverpkg=./... -covermode=atomic -coverprofile=coverage.out ./..
 [tasks.check]
 description = "Full gate: fmt, build, vet, lint, deadcode, test"
 depends = ["fmt", "build", "vet", "lint", "deadcode", "test"]
+
+# The example is a separate module (testdata/example, joined via go.work) with its own deps
+# (modernc.org/sqlite, samber/lo). It is checked but deliberately kept out of coverage, so it
+# runs as its own task/CI job rather than under `check`/`cover`. Formatting is already covered by
+# the root `fmt` task (gofmt -l . recurses into testdata/example).
+[tasks.example]
+description = "Check the example module (build, vet, lint, deadcode, test -race); no coverage"
+dir = "testdata/example"
+run = 'go build ./... && go vet ./... && golangci-lint run ./... && deadcode -test ./... && go test -race ./...'

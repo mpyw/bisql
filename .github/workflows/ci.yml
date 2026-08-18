@@ -27,3 +27,14 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.out
           fail_ci_if_error: false
+
+  # The example (testdata/example) is a separate module with its own dependencies. It is checked
+  # but deliberately excluded from coverage, so it runs as its own job.
+  example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          cache: true
+      - run: mise run example

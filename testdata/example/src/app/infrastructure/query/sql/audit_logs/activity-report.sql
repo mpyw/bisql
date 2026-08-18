@@ -11,7 +11,7 @@ from audit_logs a
 join users u on u.id = a.user_id
 join departments d on d.id = u.department_id
 where 1 = 1
-/*%! @include audit_logs/fragment/window.sql */
+/*%! @include audit_logs/_window.sql */
 /*%if actions != null*/and a.action in /*actions*/('login')/*%end*/
 group by d.name
 order by events desc, d.name
