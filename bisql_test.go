@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -647,4 +648,36 @@ func TestParseFile(t *testing.T) {
 	if !strings.Contains(expanded, "/*%if activeOnly*/and status = /*status*/'active'/*%end*/") {
 		t.Errorf("ExpandFile did not splice the fragment:\n%s", expanded)
 	}
+}
+
+// A parsed Template is immutable and safe for concurrent Build calls. Run with -race to catch a
+// regression that shares mutable state across builds.
+func TestTemplateConcurrentBuild(t *testing.T) {
+	tmpl, err := bisql.Parse(
+		"select id, name from users where 1 = 1" +
+			" /*%if name != null*/and name = /*name*/'x'/*%end*/" +
+			" /*%if depts != null*/and department_id in /*depts*/(0)/*%end*/",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				stmt, err := tmpl.Build(map[string]any{"name": "Alice", "depts": []any{1}})
+				if err != nil {
+					t.Errorf("build: %v", err)
+					return
+				}
+				if len(stmt.Args) != 2 {
+					t.Errorf("got %d args, want 2", len(stmt.Args))
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
