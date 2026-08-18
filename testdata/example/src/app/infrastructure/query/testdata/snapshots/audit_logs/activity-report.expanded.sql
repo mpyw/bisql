@@ -1,0 +1,23 @@
+-- Code generated from sql/audit_logs/activity-report.sql; DO NOT EDIT. Regenerate with `go test ./... -update`.
+-- The two-way template with every @include expanded.
+
+-- Per-department activity report over the audit log.
+--
+-- The reporting window is assembled from reusable fragments (`window` pulls in `since`), so the
+-- lower and upper bounds are defined once and shared across every report. Each bound is a
+-- conjunction off the `where 1 = 1` anchor and drops out when its parameter is absent, so
+-- "all time" and "a bounded window" are the same template with different inputs.
+select
+    d.name as department,
+    count(*) as events
+from audit_logs a
+join users u on u.id = a.user_id
+join departments d on d.id = u.department_id
+where 1 = 1
+/*%if since != null*/and a.created_at >= /*since*/'2025-01-01'/*%end*/
+
+/*%if until != null*/and a.created_at < /*until*/'2026-01-01'/*%end*/
+
+/*%if actions != null*/and a.action in /*actions*/('login')/*%end*/
+group by d.name
+order by events desc, d.name
