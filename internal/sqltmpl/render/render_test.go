@@ -137,10 +137,14 @@ func TestRender_For(t *testing.T) {
 	if res := renderTmpl(t, "x /*%for i in xs*/Y/*%end*/", expr.Scope{}, qmark); res.SQL != "x " {
 		t.Errorf("nil for: %q", res.SQL)
 	}
-	// the `: 'sep'` clause emits the separator between iterations only (no trailing separator)
-	res := renderTmpl(t, "/*%for c in cols : ', '*/z/*%end*/", expr.Scope{"cols": []any{1, 2, 3}}, qmark)
-	if res.SQL != "z, z, z" {
-		t.Errorf("separator list: %q", res.SQL)
+	// the body is emitted verbatim per element, with no text inserted between iterations
+	if res := renderTmpl(t, "/*%for c in cols*/z/*%end*/", expr.Scope{"cols": []any{1, 2, 3}}, qmark); res.SQL != "zzz" {
+		t.Errorf("verbatim body: %q", res.SQL)
+	}
+	// a comma list is anchored (a fixed first element) and each iteration leads with its comma
+	res := renderTmpl(t, "0/*%for c in cols*/, z/*%end*/", expr.Scope{"cols": []any{1, 2, 3}}, qmark)
+	if res.SQL != "0, z, z, z" {
+		t.Errorf("leading-comma list: %q", res.SQL)
 	}
 	// non-nil non-iterable -> error
 	n, _ := parser.Parse("/*%for i in xs*/Y/*%end*/")
@@ -193,10 +197,11 @@ func TestRender_PlaceholderCounterGapFreeAcrossUnreachedIf(t *testing.T) {
 	}
 }
 
-// Binds inside a /*%for*/ body are numbered across iterations, with the separator between them.
-func TestRender_BindInsideForWithSeparator(t *testing.T) {
-	res := renderTmpl(t, "/*%for i in xs : ', '*/(/*i*/0)/*%end*/", expr.Scope{"xs": []any{1, 2, 3}}, dollar)
-	if res.SQL != "($1), ($2), ($3)" || !reflect.DeepEqual(res.Args, []any{1, 2, 3}) {
+// Binds inside a /*%for*/ body are numbered across iterations. The list is anchored by a fixed
+// first element (select 0) with each iteration leading with its own comma.
+func TestRender_BindInsideFor(t *testing.T) {
+	res := renderTmpl(t, "select 0/*%for i in xs*/, (/*i*/0)/*%end*/", expr.Scope{"xs": []any{1, 2, 3}}, dollar)
+	if res.SQL != "select 0, ($1), ($2), ($3)" || !reflect.DeepEqual(res.Args, []any{1, 2, 3}) {
 		t.Errorf("SQL=%q Args=%#v", res.SQL, res.Args)
 	}
 }

@@ -137,7 +137,7 @@ connectors, and does not normalize whitespace.
 
 This design makes the output a deterministic function of the template text and the evaluated
 branches, at the cost of a single authoring obligation: **the author anchors every dynamic
-fragment** so that no separator is ever left dangling. The `1 = 1` above serves this purpose.
+fragment** so that no connector is ever left dangling. The `1 = 1` above serves this purpose.
 The complete set of obligations is specified in [Authoring rules](#authoring-rules).
 
 ## Directives
@@ -237,27 +237,19 @@ where 1 = 1 /*%if minAge != null*/and age >= /*minAge*/0/*%end*/
 /*%end*/
 ```
 
-An optional separator (typically a comma):
-
-```sql
-/*%for x in xs : ','*/
-    -- body
-/*%end*/
-```
-
 </td>
 <td>
 
-**Iteration.** Renders the body once for each element of `xs`, bound to `x`. The separator
-clause keeps an anchorless list (a multi-row `VALUES`) two-way. The separator is a **string
-literal** (single- or double-quoted, doubled to escape), not an expression.
+**Iteration.** Renders the body once for each element of `xs`, bound to `x`, with **no text
+inserted between iterations**. A list is kept two-way by anchoring it and having each iteration
+lead with its own connector (see [Building lists](#building-lists)).
 
 ```sql
-insert into audit_logs (user_id) values /*%for id in ids : ', '*/(/*id*/0)/*%end*/
+where 1 = 0 /*%for kw in kws*/or name like /*kw*/'%x%'/*%end*/
 
--- ids = [1, 2]
---   →  insert into audit_logs (user_id) values ($1), ($2)
---      ($1 = 1, $2 = 2)
+-- kws = ["a", "b"]
+--   →  where 1 = 0 or name like $1 or name like $2
+--      ($1 = "a", $2 = "b")
 ```
 
 </td>
@@ -319,33 +311,32 @@ select id /*%! TODO: drop this column */ from users
 All other comment forms — block comments (`/** … */`), line comments (`-- …`), and optimizer
 hints (`/*+ … */`) — pass through to the output unchanged.
 
-### Conditionals and iteration
+### Building lists
 
-A `/*%for*/` may declare a separator with a trailing `: 'sep'` clause. The separator is
-emitted **between iterations only** — never before the first element or after the last — and
-solely at build time. Because the `/*%for … : 'sep'*/` directive is a comment when the raw
-template is pasted into a client, the raw text contains a single body with no separator. This
-is what keeps a list with no anchor position — a multi-row `VALUES` clause, a function-argument
-list — two-way:
+`/*%for*/` inserts nothing between iterations, so a list is made two-way the same way every
+dynamic fragment is: a fixed **anchor** plus a **leading connector** on each element.
+
+- **`AND` / `OR` lists** anchor with `1 = 1` / `1 = 0`; each iteration leads with its own
+  `and` / `or`. An empty list renders just the anchor.
+- **Comma lists** — a multi-row `VALUES`, a `jsonb_build_object`, an `ARRAY[…]` — have no no-op
+  slot to anchor against, so they are expressed as a **set**: a zero-row `select … where 1 = 0`
+  seed plus one `union all select …` per element, consumed by a table source or an aggregate
+  (`jsonb_agg`, `array_agg`, `jsonb_object_agg`, …). `union all` is the leading connector, and
+  an empty list renders just the seed — so this form is empty-safe where a bare comma list
+  (which would leave a dangling comma, or an invalid empty `values`) is not.
 
 ```sql
+-- multi-row insert, empty-safe (an empty list inserts nothing)
 insert into audit_logs (user_id, action)
-values /*%for log in logs : ', '*/
-  (/*log.userId*/0, /*log.action*/'view')
-/*%end*/
+select 0, '' where 1 = 0
+/*%for log in logs*/ union all select /*log.userId*/0, /*log.action*/'view'/*%end*/
 ```
 
-| Context               | Result                                     |
-|:----------------------|:-------------------------------------------|
-| Build (two rows)      | `values ($1, $2), ($3, $4)`                |
-| Raw paste in a client | `values (0, 'view')` — a valid single-row `VALUES` |
-
-The separator value is a single-quoted string literal, with `''` for a literal quote.
-
-> [!NOTE]
-> A `VALUES` list built this way must have at least one row (an empty list renders `values`
-> with nothing after it). For a list that may be empty, use `INSERT … SELECT` with a zero-row
-> anchor instead (see [Anchoring dynamic fragments](#anchoring-dynamic-fragments)).
+| Context               | Result                                                          |
+|:----------------------|:---------------------------------------------------------------|
+| Build (two rows)      | `… where 1 = 0 union all select $1, $2 union all select $3, $4` |
+| Raw paste in a client | `… where 1 = 0 union all select 0, 'view'` — a valid statement  |
+| Empty list            | `… where 1 = 0` — inserts nothing                              |
 
 > [!NOTE]
 > `/*%for*/` iterates over **values**, which are bound as parameters. It does not emit column
@@ -496,7 +487,7 @@ Because the engine removes nothing implicitly, a template author observes the fo
 
 ### Anchoring dynamic fragments
 
-Each dynamic construct is preceded by a fixed anchor so that a rendered separator is never
+Each dynamic construct is preceded by a fixed anchor so that a rendered connector is never
 left dangling.
 
 | Construct         | Anchoring rule                                                                          |
@@ -504,8 +495,7 @@ left dangling.
 | `WHERE` / `HAVING`| Introduce a constant predicate (`1 = 1` for `AND` chains, `1 = 0` for `OR` chains); each condition carries a leading `and`/`or`. |
 | `ORDER BY`        | Terminate the list with a stable key (for example, `id`).                               |
 | `SELECT` / `SET` column list | Begin with a fixed column and add each optional, whitelisted column with a leading comma inside a `/*%if*/`. |
-| List via `/*%for*/` | Declare the separator with the `: 'sep'` clause; it is emitted between iterations only, so no dangling separator remains and no anchor is required. |
-| Empty-safe row list | A `VALUES` list built with `: ', '` must be non-empty; for a possibly-empty list, use `INSERT … SELECT` anchored by a zero-row `select … where 1 = 0` and `union all`. |
+| List via `/*%for*/` | Anchor the list and have each iteration lead with its own connector — `and`/`or` for a predicate list, or `union all select …` off a zero-row `select … where 1 = 0` seed for a comma/row list (see [Building lists](#building-lists)). |
 | `JOIN` / `UNION`  | Place the connector inside the `/*%if*/` block so that each fragment is self-contained. |
 
 ```sql
@@ -524,15 +514,11 @@ order by /*%if byName*/name, /*%end*/id
 select id /*%if withName*/, name/*%end*/ /*%if withDept*/, department_id/*%end*/
 from users
 
--- Row list: the : ', ' separator is emitted between iterations only (build-only, two-way).
-insert into audit_logs (user_id, action)
-values /*%for log in logs : ', '*/(/*log.userId*/0, /*log.action*/'view')/*%end*/
-
--- Empty-safe variant: INSERT ... SELECT anchored by a zero-row select, for a list that may
--- have no rows (a VALUES list would render an invalid empty `values`).
+-- Row list: no anchor slot, so express it as a set — a zero-row seed plus one
+-- "union all select" per row. Empty-safe: an empty list inserts nothing.
 insert into audit_logs (user_id, action)
 select 0, '' where 1 = 0
-/*%for log in logs : ' '*/union all select /*log.userId*/0, /*log.action*/'view'/*%end*/
+/*%for log in logs*/ union all select /*log.userId*/0, /*log.action*/'view'/*%end*/
 ```
 
 > [!IMPORTANT]
@@ -603,16 +589,10 @@ the membership operator `in`, and `len`.
 
 The null literal is `nil`; the Komapper idiom `x != null` is also accepted, because an
 undefined identifier `null` resolves to nil. A nil or absent `/*%if*/` condition is treated
-as false; a nil or absent `/*%for*/` iterable yields zero iterations. The evaluator is
-replaceable through `WithEvaluator`.
-
-The one part of a directive that is **not** an expression is the `/*%for … : 'sep'*/`
-separator: it is a constant string literal, parsed at build time rather than evaluated. This
-is deliberate — the separator is emitted verbatim between iterations, so permitting a runtime
-value would reintroduce raw-text injection. A separator that is not a quoted literal is a
-parse error. (The colon that introduces the separator is the first one not inside quotes,
-`()`, `[]`, or `{}`, so an iterable expression's own colon — in a ternary `a ? b : c`, a
-slice `x[1:2]`, or a map `{k: v}` — is not mistaken for it.)
+as false; a nil or absent `/*%for*/` iterable yields zero iterations. Everything after `in` in
+a `/*%for*/` directive is the iterable expression verbatim — including any colons (a ternary
+`a ? b : c`, a slice `x[1:2]`, a map `{k: v}`). The evaluator is replaceable through
+`WithEvaluator`.
 
 ## Package layout
 

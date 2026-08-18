@@ -28,9 +28,9 @@ func TestParse_Lossless(t *testing.T) {
 		// for-loop with a 1=0 OR-anchor and a self-contained `or ...` body: raw text is
 		// `where 1 = 0 or name like '%x%'`, which is valid.
 		"select * from t where 1 = 0 /*%for kw in kws*/or name like /*kw*/'%x%'/*%end*/",
-		// for-loop with a `: 'sep'` separator clause (build-only; the directive is a comment
-		// when pasted raw, so the raw text is a single-element list `select 0 id from t`).
-		"select /*%for c in cols : ', '*//*c*/0/*%end*/ id from t",
+		// for-loop building a comma list via a WHERE 1=0 UNION ALL seed and a self-contained
+		// `union all select ...` body: raw text is `select 0 x where 1 = 0 union all select 0`.
+		"select 0 x where 1 = 0 /*%for v in vals*/union all select /*v*/0/*%end*/",
 		"select /** keep */ /*# also a comment now */ 1 -- trailing\nfrom t",
 		"select * from t where a = /*a*/1::bigint and b = ANY(/*b*/'{}'::int[])",
 		"select `a`, \"b\", 'c/*x*/' from t",
@@ -106,27 +106,22 @@ func TestParse_ParenTest(t *testing.T) {
 	t.Fatal("no BindValue found")
 }
 
-// TestParse_ForSeparatorStructure asserts the *interpretation* of the /*%for*/ separator by
-// reaching into ast.ForBlock.For (Identifier / Expression / Separator). The lossless
-// round-trip cannot cover this: ForDirective.Text() re-emits the raw token verbatim, so a
-// parse-and-Text() check never reads back the split identifier / iterable / separator.
-func TestParse_ForSeparatorStructure(t *testing.T) {
+// TestParse_ForStructure asserts the split of the /*%for*/ directive into ast.ForBlock.For
+// (Identifier / Expression) by reaching into the node. The lossless round-trip cannot cover
+// this: ForDirective.Text() re-emits the raw token verbatim, so a parse-and-Text() check never
+// reads back the split identifier / iterable. Everything after "in" is the iterable expression
+// verbatim — including colons (a ternary, a slice, a map), which are no longer special.
+func TestParse_ForStructure(t *testing.T) {
 	cases := []struct {
 		name     string
 		src      string
 		wantID   string
 		wantExpr string
-		wantSep  string
 	}{
-		{"no separator", "/*%for x in xs*/y/*%end*/", "x", "xs", ""},
-		{"single-quoted", "/*%for x in xs : ', '*/y/*%end*/", "x", "xs", ", "},
-		{"double-quoted", `/*%for x in xs : ", "*/y/*%end*/`, "x", "xs", ", "},
-		{"doubled-quote escape", "/*%for x in xs : ''''*/y/*%end*/", "x", "xs", "'"},
-		{"doubled-quote escape twice", "/*%for x in xs : ''''''*/y/*%end*/", "x", "xs", "''"},
-		{"colon inside slice", "/*%for x in xs[1:2]*/y/*%end*/", "x", "xs[1:2]", ""},
-		{"colon inside parens", "/*%for x in f(a : b)*/y/*%end*/", "x", "f(a : b)", ""},
-		{"colon inside braces", "/*%for x in {k: v}*/y/*%end*/", "x", "{k: v}", ""},
-		{"colon inside quoted string", "/*%for x in xs : ':'*/y/*%end*/", "x", "xs", ":"},
+		{"basic", "/*%for x in xs*/y/*%end*/", "x", "xs"},
+		{"slice colon passes through", "/*%for x in xs[1:2]*/y/*%end*/", "x", "xs[1:2]"},
+		{"map colon passes through", "/*%for x in {k: v}*/y/*%end*/", "x", "{k: v}"},
+		{"ternary colon passes through", "/*%for x in a ? b : c*/y/*%end*/", "x", "a ? b : c"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -154,9 +149,6 @@ func TestParse_ForSeparatorStructure(t *testing.T) {
 			}
 			if fb.For.Expression != c.wantExpr {
 				t.Errorf("For.Expression = %q, want %q", fb.For.Expression, c.wantExpr)
-			}
-			if fb.For.Separator != c.wantSep {
-				t.Errorf("For.Separator = %q, want %q", fb.For.Separator, c.wantSep)
 			}
 		})
 	}
@@ -216,8 +208,6 @@ func TestParse_ErrorMessages(t *testing.T) {
 		{"else without if", "select 1 /*%else*/x/*%end*/", "the corresponding if directive is not found"},
 		{"for without identifier", "/*%for in xs*/y/*%end*/", "the identifier is not found in the for directive"},
 		{"for without iterable", "/*%for x in */y/*%end*/", "the iterable expression is not found in the for directive"},
-		{"for separator unquoted", "/*%for x in xs : bad*/y/*%end*/", "the for separator must be a quoted string literal"},
-		{"for separator trailing junk", "/*%for x in xs : 'a'b*/y/*%end*/", "the for separator must be a quoted string literal"},
 		{"empty literal directive", "/*^ */x", "expression is not found in the literal value directive"},
 		// Asymmetry vs bind: reducer.go accepts a Word OR Paren test for a bind, but a literal
 		// test must be a Word — a Paren is rejected.
@@ -243,8 +233,6 @@ func TestParse_ErrorMessages(t *testing.T) {
 		{"bind test unwound by end", "/*%if true*/ /*val*/ /*%end*/", "the test value must follow the bind value directive"},
 		{"bind test unwound by elseif", "/*%if true*/ /*val*/ /*%elseif y*/ z /*%end*/", "the test value must follow the bind value directive"},
 		{"bind test unwound by else", "/*%if true*/ /*val*/ /*%else*/ z /*%end*/", "the test value must follow the bind value directive"},
-		// A for whose iterable is empty once its separator clause is split off.
-		{"for empty iterable before separator", "/*%for x in : ',' */x/*%end*/", "the iterable expression is not found in the for directive"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -259,10 +247,10 @@ func TestParse_ErrorMessages(t *testing.T) {
 	}
 }
 
-// TestParse_ForDoubledQuoteInIterable covers the doubled-quote escape inside a string within
-// the for iterable expression: the `”` in f('a”b') is a single escaped quote, so the scan
-// stays inside the string and never sees a top-level colon separator. Parse must succeed.
-func TestParse_ForDoubledQuoteInIterable(t *testing.T) {
+// TestParse_ForArbitraryIterable confirms the for directive accepts an arbitrary iterable
+// expression verbatim (here a call with a quoted-string argument): the parser does not inspect
+// the expression's internals, which are handed to the evaluator at build time. Parse succeeds.
+func TestParse_ForArbitraryIterable(t *testing.T) {
 	if _, err := parser.Parse("/*%for x in f('a''b') */x/*%end*/"); err != nil {
 		t.Fatalf("parser.Parse: unexpected error: %v", err)
 	}

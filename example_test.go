@@ -85,18 +85,21 @@ func Example_literal() {
 	// []
 }
 
-// A /*%for*/ loop with a ': sep' clause emits the separator between iterations only, keeping
-// a multi-row VALUES list two-way.
+// A /*%for*/ loop inserts nothing between iterations; a list is kept two-way by anchoring it
+// and having each iteration lead with its own connector. A multi-row insert therefore uses the
+// empty-safe INSERT ... SELECT form: a WHERE 1 = 0 seed (zero rows) plus one "union all select"
+// per element. An empty list renders just the seed, which inserts nothing.
 func Example_forLoop() {
 	tmpl, _ := bisql.Parse(
-		"insert into audit_logs (user_id) values /*%for id in ids : ', '*/(/*id*/0)/*%end*/",
+		"insert into audit_logs (user_id) select 0 where 1 = 0"+
+			"/*%for id in ids*/ union all select /*id*/0/*%end*/",
 		bisql.WithDialect(dialect.PostgreSQL),
 	)
 	stmt, _ := tmpl.Build(map[string]any{"ids": []any{1, 2, 3}})
 	fmt.Println(stmt.SQL)
 	fmt.Println(stmt.Args)
 	// Output:
-	// insert into audit_logs (user_id) values ($1), ($2), ($3)
+	// insert into audit_logs (user_id) select 0 where 1 = 0 union all select $1 union all select $2 union all select $3
 	// [1 2 3]
 }
 
