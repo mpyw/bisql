@@ -626,7 +626,6 @@ expr/            Evaluator interface and Scope (for custom evaluators).
 internal/
   sqltmpl/       Template layer: token, ast, lexer, parser, render, preprocess.
   exprlang/      Default evaluator (expr-lang).
-docs/design.md   Design rationale for the explicit model.
 ```
 
 The library depends only on `expr-lang` (`pgx` is a test-only dependency).

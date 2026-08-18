@@ -1,7 +1,7 @@
 // Package token defines the token kinds of the SQL template layer.
 //
 // bisql does not parse SQL as a grammar and recognizes no clause keywords or connectors:
-// it removes nothing implicitly (the explicit-model design; see docs/design.md). The lexer
+// it removes nothing implicitly (the explicit-model design). The lexer
 // only distinguishes directive comments, plain comments, string literals, and parentheses
 // (needed to delimit a bind directive's test value and to detect IN-list expansion);
 // everything else passes through as Word / Other / Space / Eol.
