@@ -22,7 +22,7 @@ select
 from users u
 /*%if withDepartment*/join departments d on d.id = u.department_id/*%end*/
 where 1 = 1
-/*%! @include users/fragment/scope.sql */
+/*%! @include users/_scope.sql */
 /*%if ageBand == 'adult'*/ and u.age >= 18/*%elseif ageBand == 'senior'*/ and u.age >= 65/*%else*/ and u.age >= 0/*%end*/
 /*%if q != null*/and u.name like /*q*/'%alice%'/*%end*/
 /*%if departmentIds != null*/and u.department_id in /*departmentIds*/(0)/*%end*/

@@ -5,7 +5,7 @@ select u.id, u.name
 from users u
 join active_depts d on d.id = u.department_id
 where 1 = 1
-/*%! @include all_in_one.scope.sql */
+/*%! @include _all_in_one.scope.sql */
 /*%if ageBand == 'adult'*/ and u.age >= 18/*%elseif ageBand == 'senior'*/ and u.age >= 65/*%else*/ and u.age >= 0/*%end*/
 /*%if ids != null*/and u.id in /*ids*/(0)/*%end*/
 /*%if tags != null*/and u.tags && /*tags*/'{}'::text[]/*%end*/
