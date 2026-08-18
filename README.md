@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/0088bc40-c207-43ee-adfe-77d9562430de" alt="bisql" width="180">
+</p>
+
 # bisql
 
 [![CI](https://github.com/mpyw/bisql/actions/workflows/ci.yml/badge.svg)](https://github.com/mpyw/bisql/actions/workflows/ci.yml)
