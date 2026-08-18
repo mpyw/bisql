@@ -508,6 +508,17 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "users/search.sql")
 ```
 
+> [!TIP]
+> Pin **two snapshots per query** as a regression guard:
+>
+> - **Expansion** — the `Expand`/`ExpandFile` output (`@include` resolved, still two-way).
+>   Dialect- and parameter-independent; isolates *what was composed*.
+> - **Build** — the `SQL` + `Args` (or the values-embedded `SQLWithArgs`) for representative
+>   parameters, per dialect; captures *what an input produces*.
+>
+> The sample project under [`testdata/example`](testdata/example) does this: one
+> `<name>.expanded.sql` per query, one `<name>.<case>.embedded.sql` per case.
+
 ## Authoring rules
 
 Because the engine removes nothing implicitly, a template author observes the following rules.
