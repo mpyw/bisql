@@ -490,30 +490,6 @@ snapshots and for pre-execution inspection with `EXPLAIN`.
 expanded, err := bisql.ExpandFile(sqlFS, "users/search.sql")
 ```
 
-The same step is available on the command line as `bisql expand`, a plain filter: it reads a
-template from standard input and writes the expanded SQL to standard output. `@include` names
-resolve under `--include-root` (`-r`), identically to the library's `FSLoader`, and an
-unresolved include exits non-zero, so a run also validates.
-
-```sh
-bisql expand -r sql < sql/users/search.sql > gen/search.sql
-cat sql/users/search.sql | bisql expand -r sql | psql ...
-```
-
-There is no batch mode: to expand many files, drive it from the shell, or call
-`bisql.ExpandFile` from Go, where you control the output layout, naming, and atomicity —
-rather than have the tool reinvent them.
-
-```sh
-# a shell one-liner over a tree
-find sql -name '*.sql' | while read -r f; do
-  bisql expand -r sql < "$f" > "gen/${f#sql/}"
-done
-```
-
-The command is a separate module, so the library keeps its single dependency; install it with
-`go install github.com/mpyw/bisql/cmd/bisql@latest`.
-
 ## Authoring rules
 
 Because the engine removes nothing implicitly, a template author observes the following rules.
@@ -647,15 +623,13 @@ bisql            Public API: NewParser, Parser, Parse, ParseFile, Expand, Expand
 dialect/         Dialect definitions: placeholder generation and literal formatting
                  (MySQL, SQLite, PostgreSQL, Oracle, SQL Server).
 expr/            Evaluator interface and Scope (for custom evaluators).
-cmd/bisql/       The `bisql` CLI (own module; urfave/cli). Subcommand: expand.
 internal/
   sqltmpl/       Template layer: token, ast, lexer, parser, render, preprocess.
   exprlang/      Default evaluator (expr-lang).
 docs/design.md   Design rationale for the explicit model.
 ```
 
-The CLI is a separate Go module (`cmd/bisql/go.mod`) so its `urfave/cli` dependency does not
-enter the library's module graph; the library itself depends only on `expr-lang`.
+The library depends only on `expr-lang` (`pgx` is a test-only dependency).
 
 ## Development
 

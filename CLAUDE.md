@@ -82,12 +82,9 @@ internal/
 Public sub-packages sit at the top level (`dialect`, `expr`) — no `pkg/`. Internal
 token/ast types must not leak through the public API.
 
-The `bisql` CLI lives in `cmd/bisql`, which is a **separate Go module** (`cmd/bisql/go.mod`,
-with `replace github.com/mpyw/bisql => ../..`) so its `urfave/cli` dependency stays out of the
-library's module graph — the library keeps its single dependency. A root `go.work` joins both
-modules so workspace-aware commands work from the repo root (e.g. `go run ./cmd/bisql`); note
-that `go build ./...` from the root still covers only the library, so `mise run check` runs
-every Go task in both modules (`for d in . cmd/bisql`).
+bisql is a **single Go library module**; there is no CLI. Expansion for inspection is exposed
+in-process as `Expand` / `ExpandFile` (callers control output layout, naming, and atomicity),
+not as a command-line tool.
 
 ## Coding rules
 

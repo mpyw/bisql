@@ -8,15 +8,5 @@ coverage:
       default:
         informational: true
 
-# Per-module flags, uploaded separately by CI.
-flag_management:
-  individual_flags:
-    - name: library
-      paths:
-        - "!cmd/"
-    - name: cli
-      paths:
-        - "cmd/"
-
 ignore:
   - "testdata"

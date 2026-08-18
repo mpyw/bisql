@@ -3,11 +3,9 @@ go = "1.25.3"
 golangci-lint = "2.12.2"
 "go:golang.org/x/tools/cmd/deadcode" = "latest"
 
-# The repository is two modules: the library (.) and the CLI (cmd/bisql), which is isolated
-# so the library keeps its single non-test dependency. Each Go task runs in both.
 [tasks.build]
 description = "Build all packages"
-run = 'for d in . cmd/bisql; do (cd "$d" && go build ./...) || exit 1; done'
+run = 'go build ./...'
 
 [tasks.fmt]
 description = "Check formatting (gofmt)"
@@ -18,23 +16,23 @@ if [ -n "$files" ]; then echo "gofmt needed on:"; echo "$files"; exit 1; fi
 
 [tasks.vet]
 description = "go vet"
-run = 'for d in . cmd/bisql; do (cd "$d" && go vet ./...) || exit 1; done'
+run = 'go vet ./...'
 
 [tasks.lint]
 description = "golangci-lint"
-run = 'for d in . cmd/bisql; do (cd "$d" && golangci-lint run ./...) || exit 1; done'
+run = 'golangci-lint run ./...'
 
 [tasks.deadcode]
 description = "Report unreachable functions (reachability via tests)"
-run = 'for d in . cmd/bisql; do (cd "$d" && deadcode -test ./...) || exit 1; done'
+run = 'deadcode -test ./...'
 
 [tasks.test]
 description = "Run tests with the race detector"
-run = 'for d in . cmd/bisql; do (cd "$d" && go test -race ./...) || exit 1; done'
+run = 'go test -race ./...'
 
 [tasks.cover]
-description = "Write a holistic coverage profile (coverage.out) per module"
-run = 'for d in . cmd/bisql; do (cd "$d" && go test -coverpkg=./... -covermode=atomic -coverprofile=coverage.out ./...) || exit 1; done'
+description = "Write a holistic coverage profile (coverage.out)"
+run = 'go test -coverpkg=./... -covermode=atomic -coverprofile=coverage.out ./...'
 
 [tasks.check]
 description = "Full gate: fmt, build, vet, lint, deadcode, test"
