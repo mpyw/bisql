@@ -100,6 +100,11 @@ templates. A string template, rather than a file, is parsed with `p.Parse` inste
 `bisql.ExpandFile` functions are shortcuts that construct a single-use parser from the given
 options.
 
+`Build` accepts the parameters as a `map[string]any`, a **struct**, or an `expr.Scope`. Passing a
+struct matches exported fields to bind names (an embedded struct's fields are promoted, and also
+reachable qualified, e.g. `Filter.Status`), so parameters carry Go's type checking rather than
+being untyped map values.
+
 A `Statement` exposes the following members:
 
 | Member            | Type     | Description                                                                       |
