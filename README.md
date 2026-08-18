@@ -412,24 +412,23 @@ that references a fragment still executes verbatim in a client (the base stateme
 without the fragment).
 
 > [!TIP]
-> A fragment owns its own leading connector; the including template must not. Because the
-> `@include` directive rides the parser-comment channel, it disappears when the template is
-> pasted verbatim into a client, so the surrounding SQL has to be valid without it. The
-> including template therefore places a bare directive after a fixed anchor, and the fragment
-> supplies the connector together with its predicate:
+> Fragments compose in either of two styles, differing in which side owns the connecting `and`:
 >
 > ```sql
-> -- including template
+> -- (a) the fragment owns the connector — the style used throughout this document
 > where 1 = 1 /*%! @include active */
-> -- fragment "active"
-> /*%if activeOnly*/and status = /*status*/'active'/*%end*/
+> --   fragment "active": /*%if activeOnly*/and status = /*status*/'active'/*%end*/
+>
+> -- (b) the fragment is self-contained; the including template owns the connector
+> where 1 = 1 and /*%! @include active */
+> --   fragment "active": 1 = 1 /*%if activeOnly*/and status = /*status*/'active'/*%end*/
 > ```
 >
-> Moving the connector onto the including side — `where 1 = 1 and /*%! @include active */` —
-> would leave a dangling `and` when the fragment is absent, and wrapping the directive as
-> `and (/*%! @include active */)` would leave empty parentheses. The fragment's leading `and`
-> is therefore load-bearing, not stylistic, and the same holds for `or` chains and any other
-> connector.
+> Both build to valid SQL (b carries a harmless extra `1 = 1`). They differ only in the
+> un-expanded template: in (a) the `@include` is a comment, leaving `where 1 = 1`, so the
+> template itself runs in a client; in (b) the `and` dangles until `Expand` resolves the
+> include. Choose (a) to keep the un-expanded template runnable, or (b) for self-contained
+> fragments, treating `Expand` as the boundary that yields the two-way statement.
 
 Fragment resolution is delegated to an implementation of the `Loader` interface:
 
