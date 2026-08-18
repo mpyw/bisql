@@ -1,11 +1,14 @@
-// Package bisql is a 2-way SQL template engine for Go.
+// Package bisql is a two-way SQL template engine for Go.
 //
-// 2-way SQL writes directives as SQL comments, so a template can be pasted into a SQL
-// client and run as-is, while an application can toggle conditions, iterate, and reuse
-// fragments. bisql is inspired by Komapper's (Kotlin) TEMPLATE API and adds a first-class
-// include directive via the Komapper-compatible partial syntax (/*> name */).
+// Directives are written as SQL comments, so a template is simultaneously a valid SQL
+// statement — it can be pasted into a client and run as-is — while an application converts the
+// same text into a parameterized statement (SQL, Args). The directive syntax is inspired by
+// Komapper's TEMPLATE API.
 //
-// bisql does not parse SQL as a grammar. It performs a shallow structural tokenization
-// that recognizes clause keywords and directives, and drops clauses that become empty and
-// AND/OR left dangling. See docs/ for the design.
+// bisql follows an explicit model: the renderer emits the template verbatim, evaluating only the
+// bind, literal, conditional, iteration, and @include directives and stripping parser comments.
+// It removes nothing implicitly — no empty-clause removal, no dangling AND/OR cleanup, no
+// whitespace normalization — so the author anchors every dynamic fragment (a 1 = 1 predicate, a
+// leading connector) to keep the rendered SQL valid. See the README for the directive reference
+// and authoring rules.
 package bisql
