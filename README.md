@@ -90,11 +90,11 @@ and status = $2
 order by id
 ```
 
-A `Parser` is immutable and safe for concurrent use, so it is constructed once and reused
-across templates, as above. A template that is available as a string, rather than a file, is
-parsed with `p.Parse` instead of `p.ParseFile`; the top-level `bisql.Parse`, `bisql.ParseFile`,
-`bisql.Expand`, and `bisql.ExpandFile` functions are shortcuts that construct a single-use
-parser from the given options.
+A `Parser` is immutable and safe for concurrent use; it is constructed once and reused across
+templates. A string template, rather than a file, is parsed with `p.Parse` instead of
+`p.ParseFile`. The package-level `bisql.Parse`, `bisql.ParseFile`, `bisql.Expand`, and
+`bisql.ExpandFile` functions are shortcuts that construct a single-use parser from the given
+options.
 
 A `Statement` exposes the following members:
 
@@ -316,14 +316,14 @@ hints (`/*+ … */`) — pass through to the output unchanged.
 `/*%for*/` inserts nothing between iterations, so a list is made two-way the same way every
 dynamic fragment is: a fixed **anchor** plus a **leading connector** on each element.
 
-- **`AND` / `OR` lists** anchor with `1 = 1` / `1 = 0`; each iteration leads with its own
-  `and` / `or`. An empty list renders just the anchor.
+- **`AND` / `OR` lists** anchor with `1 = 1` / `1 = 0`, and each iteration leads with its own
+  `and` / `or`. An empty list renders only the anchor.
 - **Comma lists** — a multi-row `VALUES`, a `jsonb_build_object`, an `ARRAY[…]` — have no no-op
   slot to anchor against, so they are expressed as a **set**: a zero-row `select … where 1 = 0`
-  seed plus one `union all select …` per element, consumed by a table source or an aggregate
-  (`jsonb_agg`, `array_agg`, `jsonb_object_agg`, …). `union all` is the leading connector, and
-  an empty list renders just the seed — so this form is empty-safe where a bare comma list
-  (which would leave a dangling comma, or an invalid empty `values`) is not.
+  seed followed by one `union all select …` per element, consumed by a table source or an
+  aggregate (`jsonb_agg`, `array_agg`, `jsonb_object_agg`, …). `union all` is the leading
+  connector, and an empty list renders only the seed. This is empty-safe, unlike a bare comma
+  list, which leaves a dangling comma or an invalid empty `values`.
 
 ```sql
 -- multi-row insert, empty-safe (an empty list inserts nothing)
@@ -419,9 +419,8 @@ type Loader interface {
 }
 ```
 
-Fragment resolution is delegated to an implementation of the `Loader` interface. Four
-implementations are provided. There is **no default**; a template that uses `@include` must be
-parsed with a loader.
+Four implementations are provided. There is **no default**; a template that uses `@include`
+must be parsed with a loader.
 
 | Implementation   | Constructor                        | Source                                              |
 |:-----------------|:-----------------------------------|:----------------------------------------------------|
@@ -432,8 +431,8 @@ parsed with a loader.
 
 `ParseFile` (see [Synopsis](#synopsis)) is the file-oriented entry point: it reads the root
 template from an `fs.FS` and, unless a loader is configured explicitly, resolves `@include`
-fragments from the same `fs.FS`. It is therefore equivalent to the following, which is the
-form to use when the root template is a string rather than a file:
+fragments from the same `fs.FS`. It is equivalent to the following, which applies when the
+root template is a string rather than a file:
 
 ```go
 loader := bisql.NewFSLoader(sqlFS)
