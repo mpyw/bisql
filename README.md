@@ -411,6 +411,26 @@ unbounded depth. Because the directive is carried on the parser-comment channel,
 that references a fragment still executes verbatim in a client (the base statement runs
 without the fragment).
 
+> [!TIP]
+> A fragment owns its own leading connector; the including template must not. Because the
+> `@include` directive rides the parser-comment channel, it disappears when the template is
+> pasted verbatim into a client, so the surrounding SQL has to be valid without it. The
+> including template therefore places a bare directive after a fixed anchor, and the fragment
+> supplies the connector together with its predicate:
+>
+> ```sql
+> -- including template
+> where 1 = 1 /*%! @include active */
+> -- fragment "active"
+> /*%if activeOnly*/and status = /*status*/'active'/*%end*/
+> ```
+>
+> Moving the connector onto the including side — `where 1 = 1 and /*%! @include active */` —
+> would leave a dangling `and` when the fragment is absent, and wrapping the directive as
+> `and (/*%! @include active */)` would leave empty parentheses. The fragment's leading `and`
+> is therefore load-bearing, not stylistic, and the same holds for `or` chains and any other
+> connector.
+
 Fragment resolution is delegated to an implementation of the `Loader` interface:
 
 ```go
