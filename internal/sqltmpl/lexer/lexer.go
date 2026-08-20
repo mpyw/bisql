@@ -10,15 +10,17 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"github.com/mpyw/bisql/bindsyntax"
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 	"github.com/mpyw/bisql/internal/sqltmpl/token"
 )
 
 // Lexer scans a SQL template and yields tokens one at a time.
 type Lexer struct {
-	src  string
-	pos  int // scan position (byte offset)
-	line int // current line (1-based), tracked as newlines are consumed
+	src    string
+	syntax bindsyntax.Syntax
+	pos    int // scan position (byte offset)
+	line   int // current line (1-based), tracked as newlines are consumed
 
 	lineStart int // byte offset of the current line start
 	tokenLine int // line at the start of the current token
@@ -28,9 +30,15 @@ type Lexer struct {
 	err   error
 }
 
-// New creates a Lexer over src.
+// New creates a Lexer over src using bisql's two-way bind syntax.
 func New(src string) *Lexer {
-	return &Lexer{src: src, line: 1, lineStart: 0}
+	return NewWithBindSyntax(src, bindsyntax.TwoWay)
+}
+
+// NewWithBindSyntax creates a Lexer over src that recognizes binds written in the given
+// syntax.
+func NewWithBindSyntax(src string, syntax bindsyntax.Syntax) *Lexer {
+	return &Lexer{src: src, syntax: syntax, line: 1, lineStart: 0}
 }
 
 // Token returns the string of the most recently read token.
@@ -128,6 +136,15 @@ func (l *Lexer) scan() token.Kind {
 		return l.scanSlashStar()
 	}
 
+	// A bind spelled in the SQL rather than in a comment is opaque text, so it has to be
+	// recognized before the surrounding word absorbs it.
+	if l.syntax == bindsyntax.SqlcNamed {
+		if m, ok := bindsyntax.Recognize(l.src[l.pos:]); ok {
+			l.advanceOver(m.Len)
+			return token.NamedBind
+		}
+	}
+
 	// A word (identifier / keyword-like / number), possibly absorbing a '...' literal.
 	if isWordStart(l.src, l.pos) {
 		return l.scanWord()
@@ -137,6 +154,18 @@ func (l *Lexer) scan() token.Kind {
 	_, size := utf8.DecodeRuneInString(l.src[l.pos:])
 	l.pos += size
 	return token.Other
+}
+
+// advanceOver consumes n bytes, keeping the line and column bookkeeping honest: a bind
+// marker may be written across lines (sqlc.arg(\n'x')).
+func (l *Lexer) advanceOver(n int) {
+	for i := 0; i < n; i++ {
+		if l.src[l.pos+i] == '\n' {
+			l.line++
+			l.lineStart = l.pos + i + 1
+		}
+	}
+	l.pos += n
 }
 
 func (l *Lexer) peekAt(i int) byte {

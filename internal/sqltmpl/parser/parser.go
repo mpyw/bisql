@@ -10,16 +10,24 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/mpyw/bisql/bindsyntax"
 	"github.com/mpyw/bisql/internal/sqltmpl/ast"
 	"github.com/mpyw/bisql/internal/sqltmpl/lexer"
 	"github.com/mpyw/bisql/internal/sqltmpl/token"
 )
 
-// Parse turns a template string into the template tree. The result satisfies
-// node.Text() == src, except that parser-level comments (/*%! ... */) and a trailing
-// delimiter (;) are dropped.
+// Parse turns a template string into the template tree using bisql's two-way bind syntax.
+// The result satisfies node.Text() == src, except that parser-level comments (/*%! ... */)
+// and a trailing delimiter (;) are dropped.
 func Parse(src string) (ast.Node, error) {
-	p := &parser{lex: lexer.New(src)}
+	return ParseWithBindSyntax(src, bindsyntax.TwoWay)
+}
+
+// ParseWithBindSyntax turns a template string into the template tree, reading binds in the
+// given syntax. Only the bind spelling differs: the block directives are comments either
+// way, so they parse identically.
+func ParseWithBindSyntax(src string, syntax bindsyntax.Syntax) (ast.Node, error) {
+	p := &parser{lex: lexer.NewWithBindSyntax(src, syntax), syntax: syntax}
 	p.push(&statementReducer{})
 	node, err := p.parse()
 	if err != nil {
@@ -33,6 +41,7 @@ func Parse(src string) (ast.Node, error) {
 
 type parser struct {
 	lex      *lexer.Lexer
+	syntax   bindsyntax.Syntax
 	reducers []reducer
 	stop     token.Kind // why the parse loop ended: EOF, Delimiter, or CloseParen
 	loc      ast.Location
@@ -74,7 +83,7 @@ func (p *parser) parse() (ast.Node, error) {
 			p.stop = k
 			return p.reduceAll()
 		case token.OpenParen:
-			child := &parser{lex: p.lex}
+			child := &parser{lex: p.lex, syntax: p.syntax}
 			child.push(&statementReducer{})
 			node, err := child.parse()
 			if err != nil {
@@ -96,6 +105,10 @@ func (p *parser) parse() (ast.Node, error) {
 			p.pushNode(ast.Comment{Token: p.tok})
 		case token.BindValue:
 			if err := p.parseBind(); err != nil {
+				return nil, err
+			}
+		case token.NamedBind:
+			if err := p.parseNamedBind(); err != nil {
 				return nil, err
 			}
 		case token.LiteralValue:
@@ -129,6 +142,10 @@ func (p *parser) parse() (ast.Node, error) {
 }
 
 func (p *parser) parseBind() error {
+	if p.syntax != bindsyntax.TwoWay {
+		return p.errf("the two-way bind directive %s is not available with the %s bind syntax; "+
+			"write the bind as @name or sqlc.arg('name')", p.tok, p.syntax)
+	}
 	expr := strip(p.tok, "/*", "*/")
 	if expr == "" {
 		return p.errf("expression is not found in the bind value directive")
@@ -137,7 +154,32 @@ func (p *parser) parseBind() error {
 	return nil
 }
 
+// parseNamedBind handles a bind that carries its own name. There is no test literal to
+// collect, so the node is complete on the spot and needs no reducer; a trailing cast is
+// ordinary opaque text that follows it.
+func (p *parser) parseNamedBind() error {
+	m, ok := bindsyntax.Recognize(p.tok)
+	if !ok {
+		return p.errf("malformed bind %q", p.tok)
+	}
+	p.pushNode(ast.BindValue{
+		Loc:        p.loc,
+		Token:      p.tok,
+		Expression: m.Name,
+		ExpandList: m.Kind == bindsyntax.Slice,
+	})
+	return nil
+}
+
 func (p *parser) parseLiteral() error {
+	if p.syntax != bindsyntax.TwoWay {
+		// The value is inlined as text rather than bound, so a static analyzer reading the
+		// template sees a constant and can check nothing about it. Refusing keeps the
+		// guarantee that every value in the query is one such a tool has vouched for.
+		return p.errf("literal interpolation %s is not available with the %s bind syntax; "+
+			"bind the value as a parameter, or use a whitelisted /*%%if*/ toggle for an "+
+			"identifier or a sort direction", p.tok, p.syntax)
+	}
 	expr := strip(p.tok, "/*^", "*/")
 	if expr == "" {
 		return p.errf("expression is not found in the literal value directive")

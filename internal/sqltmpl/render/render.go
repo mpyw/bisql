@@ -123,43 +123,28 @@ func (r *renderer) eval(exprStr string) (any, error) {
 	return v, nil
 }
 
-// visitBind expands into an IN list when the test literal is a parenthesized group, and
-// otherwise binds the value as a single parameter (so a slice becomes one array parameter,
-// e.g. Postgres `= ANY($1::type[])`). Whether the target dialect supports array binding is
-// the driver's concern.
+// visitBind expands the value into a placeholder list when the bind asks for it, and
+// otherwise binds it as a single parameter (so a slice becomes one array parameter, e.g.
+// Postgres `= ANY($1::type[])`). Whether the target dialect supports array binding is the
+// driver's concern.
+//
+// Who writes the surrounding parentheses differs by syntax, and it has to: a parenthesized
+// test literal *is* the parentheses, so the renderer replaces them, while a bind spelled in
+// the SQL has to be valid SQL before rendering — `in (sqlc.slice('ids'))` needs its parens
+// written — so emitting another pair would double them.
 func (r *renderer) visitBind(node ast.BindValue) error {
 	v, err := r.eval(node.Expression)
 	if err != nil {
 		return err
 	}
-	if _, isParen := node.Test.(ast.Paren); isParen {
-		elems, ok := asIterable(v)
-		if !ok {
-			elems = []any{v} // scalar with a paren test -> single-element list
-		}
+	switch _, isParen := node.Test.(ast.Paren); {
+	case isParen:
 		r.emit("(")
-		if len(elems) == 0 {
-			r.emit("null")
-		}
-		for i, e := range elems {
-			if i > 0 {
-				r.emit(", ")
-			}
-			if tup, ok := asIterable(e); ok { // a multi-column row, e.g. (a,b) IN ((1,2),(3,4))
-				r.emit("(")
-				for j, te := range tup {
-					if j > 0 {
-						r.emit(", ")
-					}
-					r.bindOne(te)
-				}
-				r.emit(")")
-			} else {
-				r.bindOne(e)
-			}
-		}
+		r.bindList(v)
 		r.emit(")")
-	} else {
+	case node.ExpandList:
+		r.bindList(v)
+	default:
 		r.bindOne(v)
 	}
 	for _, c := range node.Trailing {
@@ -168,6 +153,37 @@ func (r *renderer) visitBind(node ast.BindValue) error {
 		}
 	}
 	return nil
+}
+
+// bindList emits v as a comma-separated run of placeholders, without parentheses of its
+// own. An empty list has no placeholders to emit and would leave the enclosing `in ()`
+// invalid, so it renders as null — which matches nothing, the same as an empty IN list
+// means.
+func (r *renderer) bindList(v any) {
+	elems, ok := asIterable(v)
+	if !ok {
+		elems = []any{v} // a scalar where a list was asked for -> a one-element list
+	}
+	if len(elems) == 0 {
+		r.emit("null")
+	}
+	for i, e := range elems {
+		if i > 0 {
+			r.emit(", ")
+		}
+		if tup, ok := asIterable(e); ok { // a multi-column row, e.g. (a,b) IN ((1,2),(3,4))
+			r.emit("(")
+			for j, te := range tup {
+				if j > 0 {
+					r.emit(", ")
+				}
+				r.bindOne(te)
+			}
+			r.emit(")")
+		} else {
+			r.bindOne(e)
+		}
+	}
 }
 
 func (r *renderer) visitLiteral(node ast.LiteralValue) error {
