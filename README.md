@@ -638,6 +638,8 @@ a `/*%for*/` directive is the iterable expression verbatim — including any col
 bisql            Public API: NewParser, Parser, Parse, ParseFile, Expand, ExpandFile,
                  Template, Statement, Option, and fragment loaders (Loader, RegistryLoader,
                  FSLoader, LoaderFunc, StackedLoader, ErrNotFound, WithLoader, WithStackedLoader).
+bindsyntax/      How a bind is written: TwoWay (the default /*expr*/literal form) and
+                 SqlcNamed (@name / sqlc.arg('name'), not implemented yet).
 dialect/         Dialect definitions: placeholder generation and literal formatting
                  (MySQL, SQLite, PostgreSQL, Oracle, SQL Server).
 expr/            Evaluator interface and Scope (for custom evaluators).

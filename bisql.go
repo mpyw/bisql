@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/mpyw/bisql/bindsyntax"
 	"github.com/mpyw/bisql/dialect"
 	"github.com/mpyw/bisql/expr"
 	"github.com/mpyw/bisql/internal/exprlang"
@@ -64,9 +65,10 @@ func (s Statement) SQLWithArgs() string {
 type Option func(*config)
 
 type config struct {
-	dialect   dialect.Dialect
-	evaluator expr.Evaluator
-	loader    Loader
+	dialect    dialect.Dialect
+	evaluator  expr.Evaluator
+	loader     Loader
+	bindSyntax bindsyntax.Syntax
 }
 
 func defaultConfig() config {
@@ -75,6 +77,16 @@ func defaultConfig() config {
 
 // WithDialect sets the dialect used for placeholder generation (default: MySQL).
 func WithDialect(d dialect.Dialect) Option { return func(c *config) { c.dialect = d } }
+
+// WithBindSyntax selects how binds are written in the template (default:
+// bindsyntax.TwoWay, bisql's own /*expr*/literal form).
+//
+// bindsyntax.SqlcNamed is not implemented yet: the lexer still recognizes only the
+// two-way form, so Parse rejects it rather than silently reading a template as
+// something it is not. See the bindsyntax package for what the choice trades.
+func WithBindSyntax(s bindsyntax.Syntax) Option {
+	return func(c *config) { c.bindSyntax = s }
+}
 
 // WithEvaluator swaps the expression evaluator (default: the built-in one).
 func WithEvaluator(e expr.Evaluator) Option { return func(c *config) { c.evaluator = e } }
@@ -120,6 +132,9 @@ func NewParser(opts ...Option) *Parser {
 // Parse parses a template string, expanding any /*%! @include ... */ against the parser's
 // loader (absent a loader, @include is an error).
 func (p *Parser) Parse(src string) (*Template, error) {
+	if p.c.bindSyntax != bindsyntax.TwoWay {
+		return nil, fmt.Errorf("bisql: the %s bind syntax is not implemented yet", p.c.bindSyntax)
+	}
 	expanded, err := preprocess.Expand(src, p.c.resolver())
 	if err != nil {
 		return nil, err
