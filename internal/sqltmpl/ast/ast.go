@@ -104,19 +104,34 @@ type ForDirective struct {
 
 func (n ForDirective) Text() string { return n.Token + join(n.Nodes) }
 
-// BindValue is /* expr */literal. Test is the test literal (a Word or Paren) that follows;
-// it keeps the raw template runnable and is replaced at build time by a placeholder — or,
-// when Test is a Paren, by an expanded IN list. Trailing is any content that folded in
-// after the test literal (e.g. a "::cast").
+// BindValue is a bind. Under the two-way syntax it is /* expr */literal, where Test is the
+// test literal (a Word or Paren) that follows: it keeps the raw template runnable and is
+// replaced at build time by a placeholder — or, when Test is a Paren, by an expanded IN
+// list. Trailing is any content that folded in after the test literal (e.g. a "::cast").
+//
+// A syntax that spells the bind in the SQL instead carries its own name and has no test
+// literal to infer anything from, so Test is nil there and ExpandList says outright whether
+// the bind expands into a placeholder list.
 type BindValue struct {
 	Loc        Location
 	Token      string
 	Expression string
-	Test       Node
+	Test       Node // nil when the syntax carries no test literal
 	Trailing   []Node
+	// ExpandList expands the value into a comma-separated run of placeholders. Unlike a
+	// parenthesized test literal, which the renderer replaces parens and all, this emits
+	// no parentheses: the template already carries them, because it had to be valid SQL
+	// before rendering.
+	ExpandList bool
 }
 
-func (n BindValue) Text() string { return n.Token + n.Test.Text() + join(n.Trailing) }
+func (n BindValue) Text() string {
+	s := n.Token
+	if n.Test != nil {
+		s += n.Test.Text()
+	}
+	return s + join(n.Trailing)
+}
 
 // LiteralValue is /*^ expr */literal.
 type LiteralValue struct {

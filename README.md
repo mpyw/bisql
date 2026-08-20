@@ -130,6 +130,9 @@ where 1 = 1
 order by id
 ```
 
+(A template may instead spell its binds the way sqlc does, giving up this property for
+values in exchange for having them typed by an analyzer; see [Bind syntax](#bind-syntax).)
+
 When the text is executed verbatim in a SQL client, `/*%if*/`, `/*%end*/`, and `/*name*/` are
 interpreted as comments, and the trailing literal `'Alice'` remains in place; the client
 therefore evaluates `name = 'Alice'`. When the same text is processed by bisql, the `/*%if*/`
@@ -631,6 +634,59 @@ as false; a nil or absent `/*%for*/` iterable yields zero iterations. Everything
 a `/*%for*/` directive is the iterable expression verbatim — including any colons (a ternary
 `a ? b : c`, a slice `x[1:2]`, a map `{k: v}`). The evaluator is replaceable through
 `WithEvaluator`.
+
+## Bind syntax
+
+A bind is written as `/*expr*/literal` by default, and that shape is what makes a template
+runnable as-is: the comment is ignored and the sample literal takes its place. The cost
+appears when the template is also meant to be read by a static analyzer such as
+[sqlc](https://sqlc.dev). Being runnable requires a **literal** at the bind site; being
+recognized as a parameter requires a **marker**. No single text is both, so an analyzer
+reading a two-way template sees constants where the binds are — it can check the SQL, the
+catalog, and the result columns, but it can say nothing about the arguments.
+
+`WithBindSyntax(bindsyntax.SqlcNamed)` trades the runnable-as-is property, for values only,
+to get that back:
+
+```go
+tmpl, err := bisql.Parse(src,
+    bisql.WithBindSyntax(bindsyntax.SqlcNamed),
+    bisql.WithDialect(dialect.PostgreSQL))
+```
+
+| Form | Binds | Notes |
+| ---- | ----- | ----- |
+| `@name` | one parameter | the name is a bare identifier; `@a.b` binds `a` |
+| `sqlc.arg('name')` | one parameter | the name may contain dots (`'c.name'`), for a value reached through a field |
+| `sqlc.narg('name')` | one parameter | identical at build time; the distinction is for the analyzer |
+| `sqlc.slice('name')` | a placeholder list | the parentheses stay in the template, as `in (sqlc.slice('ids'))` |
+
+```sql
+select id from users
+where 1 = 1
+  /*%if activeOnly*/ and status = @status /*%end*/
+  /*%if minAge != null*/ and age >= @min_age /*%end*/
+  /*%for kw in keywords*/ and name like @kw /*%end*/
+  and id in (sqlc.slice('ids'))
+```
+
+**Only the bind spelling changes.** Every block directive is a SQL comment under either
+syntax, so `/*%if*/`, `/*%elseif*/`, `/*%else*/`, `/*%for*/` and `@include` behave
+identically, and placeholder numbering is the same single renderer-global counter — binds in
+branches that did not render are still never counted.
+
+The two forms that depend on a test literal have no meaning without one, so `Parse` rejects
+them rather than reinterpreting them:
+
+- **The two-way bind directive.** `/*status*/'active'` would otherwise be read as a plain
+  comment followed by a literal, producing a query that runs while ignoring a value.
+- **`/*^ */` literal interpolation.** The value is inlined as text rather than bound, so an
+  analyzer sees a constant there and can check nothing about it. Bind the value as a
+  parameter, or use a whitelisted `/*%if*/` toggle for an identifier or a sort direction.
+
+Note that a text that is a bind under one syntax is opaque under the other: `@status` is a
+plain word to the default syntax, which is what keeps `@>` and MySQL's `@variables` working
+there.
 
 ## Package layout
 

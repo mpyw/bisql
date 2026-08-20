@@ -81,9 +81,11 @@ func WithDialect(d dialect.Dialect) Option { return func(c *config) { c.dialect 
 // WithBindSyntax selects how binds are written in the template (default:
 // bindsyntax.TwoWay, bisql's own /*expr*/literal form).
 //
-// bindsyntax.SqlcNamed is not implemented yet: the lexer still recognizes only the
-// two-way form, so Parse rejects it rather than silently reading a template as
-// something it is not. See the bindsyntax package for what the choice trades.
+// Only the bind spelling changes: the block directives are SQL comments under either
+// syntax, so /*%if*/ and /*%for*/ behave identically. Under bindsyntax.SqlcNamed the two
+// forms that depend on a test literal are rejected rather than reinterpreted — the two-way
+// bind directive itself, and /*^ */ literal interpolation. See the bindsyntax package for
+// what the choice trades.
 func WithBindSyntax(s bindsyntax.Syntax) Option {
 	return func(c *config) { c.bindSyntax = s }
 }
@@ -132,14 +134,11 @@ func NewParser(opts ...Option) *Parser {
 // Parse parses a template string, expanding any /*%! @include ... */ against the parser's
 // loader (absent a loader, @include is an error).
 func (p *Parser) Parse(src string) (*Template, error) {
-	if p.c.bindSyntax != bindsyntax.TwoWay {
-		return nil, fmt.Errorf("bisql: the %s bind syntax is not implemented yet", p.c.bindSyntax)
-	}
 	expanded, err := preprocess.Expand(src, p.c.resolver())
 	if err != nil {
 		return nil, err
 	}
-	root, err := parser.Parse(expanded)
+	root, err := parser.ParseWithBindSyntax(expanded, p.c.bindSyntax)
 	if err != nil {
 		return nil, err
 	}
