@@ -656,7 +656,7 @@ tmpl, err := bisql.Parse(src,
 
 | Form | Binds | Notes |
 | ---- | ----- | ----- |
-| `@name` | one parameter | the name is a bare identifier; `@a.b` binds `a` |
+| `@name` | one parameter | the name is a bare identifier; `@a.b` is an error, not a dotted name |
 | `sqlc.arg('name')` | one parameter | the name may contain dots (`'c.name'`), for a value reached through a field |
 | `sqlc.narg('name')` | one parameter | identical at build time; the distinction is for the analyzer |
 | `sqlc.slice('name')` | a placeholder list | the parentheses stay in the template, as `in (sqlc.slice('ids'))` |
@@ -683,6 +683,18 @@ them rather than reinterpreting them:
 - **`/*^ */` literal interpolation.** The value is inlined as text rather than bound, so an
   analyzer sees a constant there and can check nothing about it. Bind the value as a
   parameter, or use a whitelisted `/*%if*/` toggle for an identifier or a sort direction.
+
+A prefix that could only have been meant as a marker but cannot be one is rejected for the
+same reason, since nothing downstream parses the SQL to catch it:
+
+```sql
+where name = @c.name         -- error: a dotted name must be sqlc.arg('c.name')
+where name = sqlc.arg(x)     -- error: the name has to be single-quoted
+```
+
+`@c.name` would otherwise bind only `c` and render as `$1.name`, and `sqlc.arg(x)` would be
+emitted verbatim as a call to a function that does not exist. sqlc makes the same reading of
+`@c.name` and then rejects the edited query; bisql has to reject it up front instead.
 
 Note that a text that is a bind under one syntax is opaque under the other: `@status` is a
 plain word to the default syntax, which is what keeps `@>` and MySQL's `@variables` working

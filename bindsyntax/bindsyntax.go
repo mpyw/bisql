@@ -27,7 +27,10 @@
 // here, and says nothing about the surrounding SQL.
 package bindsyntax
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Syntax is a choice of bind spelling.
 type Syntax uint8
@@ -86,23 +89,30 @@ type Marker struct {
 	Len  int
 }
 
-// Recognize reports the bind marker at the start of s, if there is one.
+// callForms are the wrapper calls, longest-distinguishing prefix first so that narg is not
+// read as a suffix of anything.
+var callForms = []struct {
+	prefix string
+	kind   Kind
+}{
+	{"sqlc.arg(", Arg},
+	{"sqlc.narg(", NArg},
+	{"sqlc.slice(", Slice},
+}
+
+// Recognize reports the bind marker at the start of s, if there is one. It recognizes
+// exactly what sqlc recognizes, including that a bare @name ends at the first character
+// that cannot continue an identifier — so @a.b yields the marker @a, as it does for sqlc.
+// Malformed is what tells a caller that such a prefix was a mistake rather than a bind.
 //
-// It looks only at s's prefix and never scans ahead, so a caller that already
-// tracks quotes and comments — as a lexer does — can consult it at each position
-// without giving up that tracking.
+// Recognize looks only at s's prefix and never scans ahead, so a caller that already tracks
+// quotes and comments — as a lexer does — can consult it at each position without giving up
+// that tracking.
 func Recognize(s string) (Marker, bool) {
 	if name, n, ok := atName(s); ok {
 		return Marker{Name: name, Kind: Arg, Len: n}, true
 	}
-	for _, form := range []struct {
-		prefix string
-		kind   Kind
-	}{
-		{"sqlc.arg(", Arg},
-		{"sqlc.narg(", NArg},
-		{"sqlc.slice(", Slice},
-	} {
+	for _, form := range callForms {
 		if !strings.HasPrefix(s, form.prefix) {
 			continue
 		}
@@ -113,6 +123,39 @@ func Recognize(s string) (Marker, bool) {
 		return Marker{Name: name, Kind: form.kind, Len: len(form.prefix) + n}, true
 	}
 	return Marker{}, false
+}
+
+// Malformed reports a reason when s begins with something that can only have been meant as
+// a bind marker but cannot be one, so that a caller can fail on the mistake instead of
+// passing it through.
+//
+// Both cases it catches would otherwise become SQL that looks plausible and is not. A
+// dotted @a.b binds only "a" and leaves ".b" behind, which renders as "$1.b"; sqlc makes
+// the same reading and then rejects the result, but a renderer that never parses SQL has
+// nothing to reject it with. A call form whose argument is not a single-quoted name matches
+// nothing and is emitted verbatim, becoming a call to a function that does not exist.
+//
+// It should be consulted before Recognize, since Recognize accepts the leading @a of a
+// dotted name.
+func Malformed(s string) (string, bool) {
+	if name, n, ok := atName(s); ok {
+		if n < len(s) && s[n] == '.' {
+			return fmt.Sprintf("@%s is followed by a period: a dotted bind name has to be "+
+				"written as sqlc.arg('%s.…'), because @%s.… reads as the parameter @%s and "+
+				"then trailing text", name, name, name, name), true
+		}
+		return "", false
+	}
+	for _, form := range callForms {
+		if !strings.HasPrefix(s, form.prefix) {
+			continue
+		}
+		if _, _, ok := quotedName(s[len(form.prefix):]); !ok {
+			return fmt.Sprintf("%s…) takes a single-quoted name, as %s'name')", form.prefix, form.prefix), true
+		}
+		return "", false
+	}
+	return "", false
 }
 
 // atName reads an `@name` marker. The name is a bare identifier: a dotted name

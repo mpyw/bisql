@@ -54,7 +54,7 @@ func TestSqlcNamed(t *testing.T) {
 			args:   []any{nil, 7},
 		},
 		{
-			// A dotted name is why the call form exists: @c.name would bind "c".
+			// A dotted name is why the call form exists; @c.name is rejected outright.
 			name:   "dotted name reaches into a value",
 			src:    "select id from users where name = sqlc.arg('c.name')",
 			params: map[string]any{"c": map[string]any{"name": "ada"}},
@@ -172,6 +172,44 @@ func TestSqlcNamed_rejectsTheTwoWayForms(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "sqlc-named") {
 				t.Errorf("error = %q, want it to name the syntax", err)
+			}
+		})
+	}
+}
+
+// A prefix that could only have been meant as a marker but cannot be one is a mistake, and
+// this is the only place it can be caught: nothing downstream parses the SQL, so @c.name
+// would otherwise render as "$1.name" and sqlc.arg(x) would be emitted verbatim.
+func TestSqlcNamed_rejectsMalformedMarkers(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			name: "dotted at-name",
+			src:  "select id from users where name = @c.name",
+			want: "dotted bind name",
+		},
+		{
+			name: "unquoted call argument",
+			src:  "select id from users where name = sqlc.arg(x)",
+			want: "single-quoted name",
+		},
+		{
+			name: "double-quoted call argument",
+			src:  `select id from users where name = sqlc.arg("x")`,
+			want: "single-quoted name",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := bisql.Parse(c.src, bisql.WithBindSyntax(bindsyntax.SqlcNamed))
+			if err == nil {
+				t.Fatalf("want an error containing %q, got nil", c.want)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %q, want it to contain %q", err, c.want)
 			}
 		})
 	}

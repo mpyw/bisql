@@ -137,9 +137,15 @@ func (l *Lexer) scan() token.Kind {
 	}
 
 	// A bind spelled in the SQL rather than in a comment is opaque text, so it has to be
-	// recognized before the surrounding word absorbs it.
+	// recognized before the surrounding word absorbs it. A prefix that can only have been
+	// meant as a marker but cannot be one is a mistake, and failing here is the only place
+	// it can be caught: bisql never parses the SQL, so nothing downstream would notice.
 	if l.syntax == bindsyntax.SqlcNamed {
-		if m, ok := bindsyntax.Recognize(l.src[l.pos:]); ok {
+		rest := l.src[l.pos:]
+		if reason, bad := bindsyntax.Malformed(rest); bad {
+			return l.fail("%s", reason)
+		}
+		if m, ok := bindsyntax.Recognize(rest); ok {
 			l.advanceOver(m.Len)
 			return token.NamedBind
 		}
