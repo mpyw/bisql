@@ -1,6 +1,7 @@
 package bindsyntax_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mpyw/bisql/bindsyntax"
@@ -57,12 +58,54 @@ func TestRecognizeRejects(t *testing.T) {
 	}
 }
 
-// @a.b binds only "a": the marker stops at the dot, which is why a dotted name
-// must use the call form.
+// @a.b stops at the dot, which is the reading sqlc makes too — and why Recognize alone is
+// not enough to tell a bind from a mistake.
 func TestRecognizeStopsAtDot(t *testing.T) {
 	m, ok := bindsyntax.Recognize("@a.b")
 	if !ok || m.Name != "a" || m.Len != 2 {
 		t.Errorf("Recognize(\"@a.b\") = %+v, %v; want name a spanning 2 bytes", m, ok)
+	}
+}
+
+// Malformed is what makes the two silent mistakes loud. Without it @c.name renders as
+// "$1.name" and sqlc.arg(x) is emitted verbatim as a call to a function that does not
+// exist, both without any complaint.
+func TestMalformed(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"@c.name", "dotted bind name"},
+		{"@c.name = 1", "dotted bind name"},
+		{"sqlc.arg(x)", "single-quoted name"},
+		{`sqlc.arg("x")`, "single-quoted name"},
+		{"sqlc.arg()", "single-quoted name"},
+		{"sqlc.arg('')", "single-quoted name"},
+		{"sqlc.arg('x'", "single-quoted name"},
+		{"sqlc.narg(x)", "single-quoted name"},
+		{"sqlc.slice(x)", "single-quoted name"},
+	} {
+		t.Run(c.in, func(t *testing.T) {
+			reason, bad := bindsyntax.Malformed(c.in)
+			if !bad {
+				t.Fatalf("Malformed(%q) = not malformed", c.in)
+			}
+			if !strings.Contains(reason, c.want) {
+				t.Errorf("reason = %q, want it to contain %q", reason, c.want)
+			}
+		})
+	}
+}
+
+// A well-formed marker is not malformed, and neither is anything that was never a marker:
+// @ and sqlc. both occur in ordinary SQL.
+func TestMalformedLeavesEverythingElseAlone(t *testing.T) {
+	for _, in := range []string{
+		"@status", "@status = 1", "sqlc.arg('x')", "sqlc.narg('c.note')", "sqlc.slice('ids')",
+		"", "@", "@>", "@@version", "tags @> '{a}'", "status", "sqlc.args('x')", "sqlc_arg('x')",
+	} {
+		t.Run(in, func(t *testing.T) {
+			if reason, bad := bindsyntax.Malformed(in); bad {
+				t.Errorf("Malformed(%q) = %q, want not malformed", in, reason)
+			}
+		})
 	}
 }
 
