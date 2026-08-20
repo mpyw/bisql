@@ -40,7 +40,14 @@ func TestSqlcNamed(t *testing.T) {
 			args:   []any{"active"},
 		},
 		{
-			name:   "call form",
+			name:   "call form, bare name",
+			src:    "select id from users where status = sqlc.arg(status)",
+			params: map[string]any{"status": "active"},
+			sql:    "select id from users where status = $1",
+			args:   []any{"active"},
+		},
+		{
+			name:   "call form, quoted name",
 			src:    "select id from users where status = sqlc.arg('status')",
 			params: map[string]any{"status": "active"},
 			sql:    "select id from users where status = $1",
@@ -192,19 +199,26 @@ func TestSqlcNamed_rejectsMalformedMarkers(t *testing.T) {
 			want: "dotted bind name",
 		},
 		{
-			name: "unquoted call argument",
-			src:  "select id from users where name = sqlc.arg(x)",
-			want: "single-quoted name",
+			name: "unquoted dotted call argument",
+			src:  "select id from users where name = sqlc.arg(c.name)",
+			want: "has to be quoted",
 		},
 		{
 			name: "double-quoted call argument",
 			src:  `select id from users where name = sqlc.arg("x")`,
-			want: "single-quoted name",
+			want: "takes a name",
+		},
+		{
+			name: "empty call argument",
+			src:  "select id from users where name = sqlc.arg()",
+			want: "takes a name",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := bisql.Parse(c.src, bisql.WithBindSyntax(bindsyntax.SqlcNamed))
+			_, err := bisql.Parse(c.src,
+				bisql.WithBindSyntax(bindsyntax.SqlcNamed),
+				bisql.WithDialect(dialect.PostgreSQL))
 			if err == nil {
 				t.Fatalf("want an error containing %q, got nil", c.want)
 			}
@@ -231,27 +245,42 @@ func TestTwoWay_leavesNamedMarkersAlone(t *testing.T) {
 	}
 }
 
-// A MySQL user variable is a single @ followed by a name, which is exactly what a bind
-// marker is, so SqlcNamed captures it. This is a limitation rather than a choice, and it is
-// inherited: sqlc reads it the same way, so a template meant for sqlc could not use one
-// regardless. The test pins the behaviour so a change to it has to be deliberate.
-func TestSqlcNamed_capturesMySQLUserVariables(t *testing.T) {
-	tmpl, err := bisql.Parse("select @row_number := @row_number + 1",
+// sqlc does not support the @name shortcut for MySQL, where @name is a user variable, so
+// bisql must not read one as a bind there either: a spelling one of them binds and the
+// other does not is the divergence this arrangement exists to avoid. The same text under
+// PostgreSQL, where sqlc does support the shortcut, is a bind.
+func TestSqlcNamed_atFormFollowsTheDialect(t *testing.T) {
+	const src = "select @row_number := @row_number + 1"
+
+	tmpl, err := bisql.Parse(src,
 		bisql.WithBindSyntax(bindsyntax.SqlcNamed), bisql.WithDialect(dialect.MySQL))
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatalf("parse (mysql): %v", err)
 	}
 	stmt, err := tmpl.Build(nil)
 	if err != nil {
-		t.Fatalf("build: %v", err)
+		t.Fatalf("build (mysql): %v", err)
 	}
-	if stmt.SQL != "select ? := ? + 1" {
-		t.Errorf("SQL = %q, want the variable read as a bind", stmt.SQL)
+	if stmt.SQL != src || len(stmt.Args) != 0 {
+		t.Errorf("mysql: SQL = %q, Args = %v; want the user variable left alone", stmt.SQL, stmt.Args)
 	}
 
-	// The double-@ session variables and the @> operator are not names, so they survive.
+	tmpl, err = bisql.Parse(src,
+		bisql.WithBindSyntax(bindsyntax.SqlcNamed), bisql.WithDialect(dialect.PostgreSQL))
+	if err != nil {
+		t.Fatalf("parse (postgres): %v", err)
+	}
+	stmt, err = tmpl.Build(map[string]any{"row_number": 1})
+	if err != nil {
+		t.Fatalf("build (postgres): %v", err)
+	}
+	if stmt.SQL != "select $1 := $2 + 1" {
+		t.Errorf("postgres: SQL = %q, want the @name read as a bind", stmt.SQL)
+	}
+
+	// A double-@ session variable and the @> operator are names under no dialect.
 	tmpl, err = bisql.Parse("select @@version, tags @> '{a}'",
-		bisql.WithBindSyntax(bindsyntax.SqlcNamed), bisql.WithDialect(dialect.MySQL))
+		bisql.WithBindSyntax(bindsyntax.SqlcNamed), bisql.WithDialect(dialect.PostgreSQL))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -261,5 +290,23 @@ func TestSqlcNamed_capturesMySQLUserVariables(t *testing.T) {
 	}
 	if stmt.SQL != "select @@version, tags @> '{a}'" || len(stmt.Args) != 0 {
 		t.Errorf("SQL = %q, Args = %v", stmt.SQL, stmt.Args)
+	}
+}
+
+// sqlc.embed selects a whole table into a nested struct; it is a result-column construct,
+// not a bind, so it has to pass through untouched.
+func TestSqlcNamed_leavesEmbedAlone(t *testing.T) {
+	const src = "select sqlc.embed(authors), id from authors where id = @id"
+	tmpl, err := bisql.Parse(src,
+		bisql.WithBindSyntax(bindsyntax.SqlcNamed), bisql.WithDialect(dialect.PostgreSQL))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	stmt, err := tmpl.Build(map[string]any{"id": 1})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if stmt.SQL != "select sqlc.embed(authors), id from authors where id = $1" {
+		t.Errorf("SQL = %q, want sqlc.embed untouched", stmt.SQL)
 	}
 }

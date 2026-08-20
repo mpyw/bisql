@@ -11,7 +11,7 @@ import (
 
 // The round-trip property has to hold under either syntax: a bind that carries its own name
 // has no test literal, so BindValue.Text() is the marker alone.
-func TestParseWithBindSyntax_roundTrips(t *testing.T) {
+func TestParseWithRules_roundTrips(t *testing.T) {
 	for _, src := range []string{
 		"select id from users where status = @status",
 		"select id from users where id in (sqlc.slice('ids'))",
@@ -20,7 +20,7 @@ func TestParseWithBindSyntax_roundTrips(t *testing.T) {
 		"select id from users where tags @> '{a}' and @@version is not null",
 	} {
 		t.Run(src, func(t *testing.T) {
-			node, err := parser.ParseWithBindSyntax(src, bindsyntax.SqlcNamed)
+			node, err := parser.ParseWithRules(src, bindsyntax.RulesFor(bindsyntax.SqlcNamed, "postgresql"))
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -33,7 +33,7 @@ func TestParseWithBindSyntax_roundTrips(t *testing.T) {
 
 // Without a test literal there is nothing to read the shape from, so the slice form is what
 // carries the request to expand.
-func TestParseWithBindSyntax_expandList(t *testing.T) {
+func TestParseWithRules_expandList(t *testing.T) {
 	cases := map[string]bool{
 		"where id in (sqlc.slice('ids'))": true,
 		"where id = @ids":                 false,
@@ -42,7 +42,7 @@ func TestParseWithBindSyntax_expandList(t *testing.T) {
 	}
 	for src, want := range cases {
 		t.Run(src, func(t *testing.T) {
-			node, err := parser.ParseWithBindSyntax(src, bindsyntax.SqlcNamed)
+			node, err := parser.ParseWithRules(src, bindsyntax.RulesFor(bindsyntax.SqlcNamed, "postgresql"))
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -63,14 +63,14 @@ func TestParseWithBindSyntax_expandList(t *testing.T) {
 	}
 }
 
-func TestParseWithBindSyntax_rejectsTestLiteralForms(t *testing.T) {
+func TestParseWithRules_rejectsTestLiteralForms(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"where s = /*status*/'active'", "the two-way bind directive"},
 		{"limit /*^lim*/10", "literal interpolation"},
 	}
 	for _, c := range cases {
 		t.Run(c.src, func(t *testing.T) {
-			_, err := parser.ParseWithBindSyntax(c.src, bindsyntax.SqlcNamed)
+			_, err := parser.ParseWithRules(c.src, bindsyntax.RulesFor(bindsyntax.SqlcNamed, "postgresql"))
 			if err == nil {
 				t.Fatalf("want an error containing %q, got nil", c.want)
 			}

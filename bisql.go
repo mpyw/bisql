@@ -84,8 +84,11 @@ func WithDialect(d dialect.Dialect) Option { return func(c *config) { c.dialect 
 // Only the bind spelling changes: the block directives are SQL comments under either
 // syntax, so /*%if*/ and /*%for*/ behave identically. Under bindsyntax.SqlcNamed the two
 // forms that depend on a test literal are rejected rather than reinterpreted — the two-way
-// bind directive itself, and /*^ */ literal interpolation. See the bindsyntax package for
-// what the choice trades.
+// bind directive itself, and /*^ */ literal interpolation.
+//
+// Which spellings are available also depends on the dialect, because sqlc's do: the @name
+// shortcut is not supported for MySQL, where @name is a user variable. See the bindsyntax
+// package.
 func WithBindSyntax(s bindsyntax.Syntax) Option {
 	return func(c *config) { c.bindSyntax = s }
 }
@@ -138,7 +141,8 @@ func (p *Parser) Parse(src string) (*Template, error) {
 	if err != nil {
 		return nil, err
 	}
-	root, err := parser.ParseWithBindSyntax(expanded, p.c.bindSyntax)
+	root, err := parser.ParseWithRules(expanded,
+		bindsyntax.RulesFor(p.c.bindSyntax, p.c.dialect.Name()))
 	if err != nil {
 		return nil, err
 	}

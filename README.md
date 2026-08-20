@@ -656,10 +656,10 @@ tmpl, err := bisql.Parse(src,
 
 | Form | Binds | Notes |
 | ---- | ----- | ----- |
-| `@name` | one parameter | the name is a bare identifier; `@a.b` is an error, not a dotted name |
-| `sqlc.arg('name')` | one parameter | the name may contain dots (`'c.name'`), for a value reached through a field |
-| `sqlc.narg('name')` | one parameter | identical at build time; the distinction is for the analyzer |
-| `sqlc.slice('name')` | a placeholder list | the parentheses stay in the template, as `in (sqlc.slice('ids'))` |
+| `sqlc.arg(name)` | one parameter | the name may also be quoted, and only then may it contain dots (`'c.name'`), for a value reached through a field |
+| `sqlc.narg(name)` | one parameter | identical at build time; the distinction is for the analyzer |
+| `sqlc.slice(name)` | a placeholder list | the parentheses stay in the template, as `in (sqlc.slice(ids))` |
+| `@name` | one parameter | a shortcut for `sqlc.arg(name)`, **except under MySQL** (see below); `@a.b` is an error, not a dotted name |
 
 ```sql
 select id from users
@@ -688,30 +688,43 @@ A prefix that could only have been meant as a marker but cannot be one is reject
 same reason, since nothing downstream parses the SQL to catch it:
 
 ```sql
-where name = @c.name         -- error: a dotted name must be sqlc.arg('c.name')
-where name = sqlc.arg(x)     -- error: the name has to be single-quoted
+where name = @c.name             -- error: a dotted name must be sqlc.arg('c.name')
+where name = sqlc.arg(c.name)    -- error: a dotted name has to be quoted
 ```
 
-`@c.name` would otherwise bind only `c` and render as `$1.name`, and `sqlc.arg(x)` would be
-emitted verbatim as a call to a function that does not exist. sqlc makes the same reading of
-`@c.name` and then rejects the edited query; bisql has to reject it up front instead.
+`@c.name` would otherwise bind only `c` and render as `$1.name`. sqlc makes the same reading
+and then rejects the edited query for being invalid SQL; bisql never parses the SQL, so it
+has to reject the spelling up front instead.
 
 The two syntaxes are not mirror images of each other. A named marker is opaque under the
 default syntax — `@status` is a plain word there — but a two-way directive under `SqlcNamed`
 is an error rather than text, because reading it as a comment followed by a literal would
 give a query that runs while ignoring a value.
 
-Recognizing `@name` requires that what follows the `@` can start an identifier, so `@>` and
-`@@version` are left alone under either syntax. A **MySQL user variable is not**: under
-`SqlcNamed` a single `@` followed by a name reads as a bind.
+### The `@name` shortcut and MySQL
+
+**`@name` is a bind under every dialect except MySQL**, where it stays ordinary text. This
+mirrors sqlc, which does not support the shortcut for MySQL because `@name` there is a user
+variable — and mirroring it is the point: a spelling one of them binds and the other does
+not is precisely the divergence this arrangement exists to avoid.
 
 ```sql
--- sqlc-named, MySQL
-select @row_number := @row_number + 1   -- renders as: select ? := ? + 1
+-- sqlc-named, MySQL: a user variable, left alone
+select @row_number := @row_number + 1
+-- sqlc-named, PostgreSQL: two binds
+select @row_number := @row_number + 1   -- renders as: select $1 := $2 + 1
 ```
 
-sqlc reads it the same way, so a template meant for sqlc could not use one regardless. A
-query that needs user variables belongs on the default syntax.
+Recognizing `@name` also requires that what follows the `@` can start an identifier, so `@>`
+and `@@version` are names under no dialect. The call forms are available everywhere, so a
+template that has to read the same way under both engines should use them.
+
+### What is not a bind
+
+`sqlc.embed(table)` is a result-column construct — it selects a whole table into a nested
+struct — so it is not a bind and passes through untouched. Note that sqlc expands it into an
+explicit column list in the SQL it hands back, so a tool rendering that SQL never sees the
+call; a tool rendering the *original* template would, and would send it to the database.
 
 ## Package layout
 

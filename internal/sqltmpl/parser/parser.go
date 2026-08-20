@@ -20,14 +20,14 @@ import (
 // The result satisfies node.Text() == src, except that parser-level comments (/*%! ... */)
 // and a trailing delimiter (;) are dropped.
 func Parse(src string) (ast.Node, error) {
-	return ParseWithBindSyntax(src, bindsyntax.TwoWay)
+	return ParseWithRules(src, bindsyntax.Rules{Syntax: bindsyntax.TwoWay})
 }
 
-// ParseWithBindSyntax turns a template string into the template tree, reading binds in the
-// given syntax. Only the bind spelling differs: the block directives are comments either
-// way, so they parse identically.
-func ParseWithBindSyntax(src string, syntax bindsyntax.Syntax) (ast.Node, error) {
-	p := &parser{lex: lexer.NewWithBindSyntax(src, syntax), syntax: syntax}
+// ParseWithRules turns a template string into the template tree, reading the bind spellings
+// the rules allow. Only the bind spelling differs: the block directives are comments under
+// any syntax, so they parse identically.
+func ParseWithRules(src string, rules bindsyntax.Rules) (ast.Node, error) {
+	p := &parser{lex: lexer.NewWithRules(src, rules), rules: rules}
 	p.push(&statementReducer{})
 	node, err := p.parse()
 	if err != nil {
@@ -41,7 +41,7 @@ func ParseWithBindSyntax(src string, syntax bindsyntax.Syntax) (ast.Node, error)
 
 type parser struct {
 	lex      *lexer.Lexer
-	syntax   bindsyntax.Syntax
+	rules    bindsyntax.Rules
 	reducers []reducer
 	stop     token.Kind // why the parse loop ended: EOF, Delimiter, or CloseParen
 	loc      ast.Location
@@ -83,7 +83,7 @@ func (p *parser) parse() (ast.Node, error) {
 			p.stop = k
 			return p.reduceAll()
 		case token.OpenParen:
-			child := &parser{lex: p.lex, syntax: p.syntax}
+			child := &parser{lex: p.lex, rules: p.rules}
 			child.push(&statementReducer{})
 			node, err := child.parse()
 			if err != nil {
@@ -142,9 +142,9 @@ func (p *parser) parse() (ast.Node, error) {
 }
 
 func (p *parser) parseBind() error {
-	if p.syntax != bindsyntax.TwoWay {
+	if p.rules.Syntax != bindsyntax.TwoWay {
 		return p.errf("the two-way bind directive %s is not available with the %s bind syntax; "+
-			"write the bind as @name or sqlc.arg('name')", p.tok, p.syntax)
+			"write the bind as sqlc.arg(name)", p.tok, p.rules.Syntax)
 	}
 	expr := strip(p.tok, "/*", "*/")
 	if expr == "" {
@@ -158,7 +158,7 @@ func (p *parser) parseBind() error {
 // collect, so the node is complete on the spot and needs no reducer; a trailing cast is
 // ordinary opaque text that follows it.
 func (p *parser) parseNamedBind() error {
-	m, ok := bindsyntax.Recognize(p.tok)
+	m, ok := p.rules.Recognize(p.tok)
 	if !ok {
 		return p.errf("malformed bind %q", p.tok)
 	}
@@ -172,13 +172,13 @@ func (p *parser) parseNamedBind() error {
 }
 
 func (p *parser) parseLiteral() error {
-	if p.syntax != bindsyntax.TwoWay {
+	if p.rules.Syntax != bindsyntax.TwoWay {
 		// The value is inlined as text rather than bound, so a static analyzer reading the
 		// template sees a constant and can check nothing about it. Refusing keeps the
 		// guarantee that every value in the query is one such a tool has vouched for.
 		return p.errf("literal interpolation %s is not available with the %s bind syntax; "+
 			"bind the value as a parameter, or use a whitelisted /*%%if*/ toggle for an "+
-			"identifier or a sort direction", p.tok, p.syntax)
+			"identifier or a sort direction", p.tok, p.rules.Syntax)
 	}
 	expr := strip(p.tok, "/*^", "*/")
 	if expr == "" {
