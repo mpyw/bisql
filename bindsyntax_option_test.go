@@ -215,8 +215,8 @@ func TestSqlcNamed_rejectsMalformedMarkers(t *testing.T) {
 	}
 }
 
-// A named marker is not a bind under the two-way syntax; it stays opaque text, which is
-// what keeps @> and MySQL's @variables working there.
+// A named marker is not a bind under the two-way syntax; it stays opaque text. Note that
+// the reverse does not hold: a two-way directive under SqlcNamed is an error, not text.
 func TestTwoWay_leavesNamedMarkersAlone(t *testing.T) {
 	tmpl, err := bisql.Parse("select @status, tags @> '{a}'")
 	if err != nil {
@@ -227,6 +227,39 @@ func TestTwoWay_leavesNamedMarkersAlone(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	if stmt.SQL != "select @status, tags @> '{a}'" || len(stmt.Args) != 0 {
+		t.Errorf("SQL = %q, Args = %v", stmt.SQL, stmt.Args)
+	}
+}
+
+// A MySQL user variable is a single @ followed by a name, which is exactly what a bind
+// marker is, so SqlcNamed captures it. This is a limitation rather than a choice, and it is
+// inherited: sqlc reads it the same way, so a template meant for sqlc could not use one
+// regardless. The test pins the behaviour so a change to it has to be deliberate.
+func TestSqlcNamed_capturesMySQLUserVariables(t *testing.T) {
+	tmpl, err := bisql.Parse("select @row_number := @row_number + 1",
+		bisql.WithBindSyntax(bindsyntax.SqlcNamed), bisql.WithDialect(dialect.MySQL))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	stmt, err := tmpl.Build(nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if stmt.SQL != "select ? := ? + 1" {
+		t.Errorf("SQL = %q, want the variable read as a bind", stmt.SQL)
+	}
+
+	// The double-@ session variables and the @> operator are not names, so they survive.
+	tmpl, err = bisql.Parse("select @@version, tags @> '{a}'",
+		bisql.WithBindSyntax(bindsyntax.SqlcNamed), bisql.WithDialect(dialect.MySQL))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	stmt, err = tmpl.Build(nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if stmt.SQL != "select @@version, tags @> '{a}'" || len(stmt.Args) != 0 {
 		t.Errorf("SQL = %q, Args = %v", stmt.SQL, stmt.Args)
 	}
 }

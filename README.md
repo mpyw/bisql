@@ -696,9 +696,22 @@ where name = sqlc.arg(x)     -- error: the name has to be single-quoted
 emitted verbatim as a call to a function that does not exist. sqlc makes the same reading of
 `@c.name` and then rejects the edited query; bisql has to reject it up front instead.
 
-Note that a text that is a bind under one syntax is opaque under the other: `@status` is a
-plain word to the default syntax, which is what keeps `@>` and MySQL's `@variables` working
-there.
+The two syntaxes are not mirror images of each other. A named marker is opaque under the
+default syntax — `@status` is a plain word there — but a two-way directive under `SqlcNamed`
+is an error rather than text, because reading it as a comment followed by a literal would
+give a query that runs while ignoring a value.
+
+Recognizing `@name` requires that what follows the `@` can start an identifier, so `@>` and
+`@@version` are left alone under either syntax. A **MySQL user variable is not**: under
+`SqlcNamed` a single `@` followed by a name reads as a bind.
+
+```sql
+-- sqlc-named, MySQL
+select @row_number := @row_number + 1   -- renders as: select ? := ? + 1
+```
+
+sqlc reads it the same way, so a template meant for sqlc could not use one regardless. A
+query that needs user variables belongs on the default syntax.
 
 ## Package layout
 
