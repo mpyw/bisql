@@ -11,7 +11,7 @@ import (
 // scanAllNamed drains a lexer reading binds in sqlc's syntax.
 func scanAllNamed(t *testing.T, src string) []tk {
 	t.Helper()
-	l := lexer.NewWithBindSyntax(src, bindsyntax.SqlcNamed)
+	l := lexer.NewWithRules(src, bindsyntax.RulesFor(bindsyntax.SqlcNamed, "postgresql"))
 	var out []tk
 	for {
 		k := l.Next()
@@ -43,6 +43,7 @@ func TestNamedBind(t *testing.T) {
 	}{
 		{"where s = @status", []string{"@status"}},
 		{"where s = sqlc.arg('status')", []string{"sqlc.arg('status')"}},
+		{"where s = sqlc.arg(status)", []string{"sqlc.arg(status)"}},
 		{"where s = sqlc.narg('note')", []string{"sqlc.narg('note')"}},
 		{"where id in (sqlc.slice('ids'))", []string{"sqlc.slice('ids')"}},
 		{"where a = @x and b = @y", []string{"@x", "@y"}},
@@ -55,8 +56,10 @@ func TestNamedBind(t *testing.T) {
 		// A marker inside a quoted span is text.
 		{"select '@status', \"@a\", `@b`", nil},
 		{"select /* @status */ 1", nil},
-		// A schema-qualified call that is not one of the three forms stays opaque.
+		// A schema-qualified call that is not one of the three forms stays opaque, which is
+		// what leaves sqlc.embed — a result-column construct, not a bind — alone.
 		{"select sqlc.args('x')", nil},
+		{"select sqlc.embed(authors), id from authors", nil},
 	}
 	for _, c := range cases {
 		t.Run(c.src, func(t *testing.T) {
@@ -87,7 +90,8 @@ func TestNamedBindOnlyUnderSqlcNamed(t *testing.T) {
 
 // A marker may be written across lines, and skipping it must not lose the line count.
 func TestNamedBindKeepsLineNumbers(t *testing.T) {
-	l := lexer.NewWithBindSyntax("a\nsqlc.arg(\n'x'\n)\nb", bindsyntax.SqlcNamed)
+	l := lexer.NewWithRules("a\nsqlc.arg(\n'x'\n)\nb",
+		bindsyntax.RulesFor(bindsyntax.SqlcNamed, "postgresql"))
 	var lastWord ast4Loc
 	for {
 		k := l.Next()

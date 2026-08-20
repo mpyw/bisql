@@ -17,10 +17,10 @@ import (
 
 // Lexer scans a SQL template and yields tokens one at a time.
 type Lexer struct {
-	src    string
-	syntax bindsyntax.Syntax
-	pos    int // scan position (byte offset)
-	line   int // current line (1-based), tracked as newlines are consumed
+	src   string
+	rules bindsyntax.Rules
+	pos   int // scan position (byte offset)
+	line  int // current line (1-based), tracked as newlines are consumed
 
 	lineStart int // byte offset of the current line start
 	tokenLine int // line at the start of the current token
@@ -32,13 +32,12 @@ type Lexer struct {
 
 // New creates a Lexer over src using bisql's two-way bind syntax.
 func New(src string) *Lexer {
-	return NewWithBindSyntax(src, bindsyntax.TwoWay)
+	return NewWithRules(src, bindsyntax.Rules{Syntax: bindsyntax.TwoWay})
 }
 
-// NewWithBindSyntax creates a Lexer over src that recognizes binds written in the given
-// syntax.
-func NewWithBindSyntax(src string, syntax bindsyntax.Syntax) *Lexer {
-	return &Lexer{src: src, syntax: syntax, line: 1, lineStart: 0}
+// NewWithRules creates a Lexer over src that recognizes the bind spellings the rules allow.
+func NewWithRules(src string, rules bindsyntax.Rules) *Lexer {
+	return &Lexer{src: src, rules: rules, line: 1, lineStart: 0}
 }
 
 // Token returns the string of the most recently read token.
@@ -140,12 +139,12 @@ func (l *Lexer) scan() token.Kind {
 	// recognized before the surrounding word absorbs it. A prefix that can only have been
 	// meant as a marker but cannot be one is a mistake, and failing here is the only place
 	// it can be caught: bisql never parses the SQL, so nothing downstream would notice.
-	if l.syntax == bindsyntax.SqlcNamed {
+	{
 		rest := l.src[l.pos:]
-		if reason, bad := bindsyntax.Malformed(rest); bad {
+		if reason, bad := l.rules.Malformed(rest); bad {
 			return l.fail("%s", reason)
 		}
-		if m, ok := bindsyntax.Recognize(rest); ok {
+		if m, ok := l.rules.Recognize(rest); ok {
 			l.advanceOver(m.Len)
 			return token.NamedBind
 		}

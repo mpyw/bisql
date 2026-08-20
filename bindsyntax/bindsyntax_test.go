@@ -7,6 +7,13 @@ import (
 	"github.com/mpyw/bisql/bindsyntax"
 )
 
+// pg and my are the rules a PostgreSQL and a MySQL template are read under: the @name
+// shortcut exists for one and not the other, because that is how sqlc reads them.
+var (
+	pg = bindsyntax.RulesFor(bindsyntax.SqlcNamed, "postgresql")
+	my = bindsyntax.RulesFor(bindsyntax.SqlcNamed, "mysql")
+)
+
 func TestRecognize(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -18,6 +25,9 @@ func TestRecognize(t *testing.T) {
 		{"@status and x = 1", "status", bindsyntax.Arg, 7},
 		{"@_leading", "_leading", bindsyntax.Arg, 9},
 		{"@a1", "a1", bindsyntax.Arg, 3},
+		{"sqlc.arg(status)", "status", bindsyntax.Arg, 16},
+		{"sqlc.narg(note)", "note", bindsyntax.NArg, 15},
+		{"sqlc.slice(ids)", "ids", bindsyntax.Slice, 15},
 		{"sqlc.arg('status')", "status", bindsyntax.Arg, 18},
 		{"sqlc.narg('note')", "note", bindsyntax.NArg, 17},
 		{"sqlc.slice('ids')", "ids", bindsyntax.Slice, 17},
@@ -28,7 +38,7 @@ func TestRecognize(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
-			m, ok := bindsyntax.Recognize(c.in)
+			m, ok := pg.Recognize(c.in)
 			if !ok {
 				t.Fatalf("Recognize(%q) = not recognized", c.in)
 			}
@@ -47,11 +57,11 @@ func TestRecognizeRejects(t *testing.T) {
 	// as sqlc.arg('a.b'). Recognizing @a here would silently bind something else.
 	for _, in := range []string{
 		"", "@", "@1abc", "@ ", "status", "'@status'",
-		"sqlc.arg()", "sqlc.arg('')", "sqlc.arg(x)", "sqlc.arg('x'", "sqlc.args('x')",
+		"sqlc.arg()", "sqlc.arg('')", "sqlc.arg('x'", "sqlc.args('x')",
 		"sqlc.arg(\"x\")", "sqlc.slice('x'", "@@x",
 	} {
 		t.Run(in, func(t *testing.T) {
-			if m, ok := bindsyntax.Recognize(in); ok {
+			if m, ok := pg.Recognize(in); ok {
 				t.Errorf("Recognize(%q) = %+v, want not recognized", in, m)
 			}
 		})
@@ -61,7 +71,7 @@ func TestRecognizeRejects(t *testing.T) {
 // @a.b stops at the dot, which is the reading sqlc makes too — and why Recognize alone is
 // not enough to tell a bind from a mistake.
 func TestRecognizeStopsAtDot(t *testing.T) {
-	m, ok := bindsyntax.Recognize("@a.b")
+	m, ok := pg.Recognize("@a.b")
 	if !ok || m.Name != "a" || m.Len != 2 {
 		t.Errorf("Recognize(\"@a.b\") = %+v, %v; want name a spanning 2 bytes", m, ok)
 	}
@@ -74,16 +84,15 @@ func TestMalformed(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"@c.name", "dotted bind name"},
 		{"@c.name = 1", "dotted bind name"},
-		{"sqlc.arg(x)", "single-quoted name"},
-		{`sqlc.arg("x")`, "single-quoted name"},
-		{"sqlc.arg()", "single-quoted name"},
-		{"sqlc.arg('')", "single-quoted name"},
-		{"sqlc.arg('x'", "single-quoted name"},
-		{"sqlc.narg(x)", "single-quoted name"},
-		{"sqlc.slice(x)", "single-quoted name"},
+		{"sqlc.arg(c.name)", "has to be quoted"},
+		{`sqlc.arg("x")`, "takes a name"},
+		{"sqlc.arg()", "takes a name"},
+		{"sqlc.arg('')", "takes a name"},
+		{"sqlc.arg('x'", "takes a name"},
+		{"sqlc.narg(c.note)", "has to be quoted"},
 	} {
 		t.Run(c.in, func(t *testing.T) {
-			reason, bad := bindsyntax.Malformed(c.in)
+			reason, bad := pg.Malformed(c.in)
 			if !bad {
 				t.Fatalf("Malformed(%q) = not malformed", c.in)
 			}
@@ -99,10 +108,13 @@ func TestMalformed(t *testing.T) {
 func TestMalformedLeavesEverythingElseAlone(t *testing.T) {
 	for _, in := range []string{
 		"@status", "@status = 1", "sqlc.arg('x')", "sqlc.narg('c.note')", "sqlc.slice('ids')",
+		"sqlc.arg(x)", "sqlc.narg(note)", "sqlc.slice(ids)",
 		"", "@", "@>", "@@version", "tags @> '{a}'", "status", "sqlc.args('x')", "sqlc_arg('x')",
+		// sqlc.embed is a result-column construct, not a bind: it stays opaque.
+		"sqlc.embed(authors)",
 	} {
 		t.Run(in, func(t *testing.T) {
-			if reason, bad := bindsyntax.Malformed(in); bad {
+			if reason, bad := pg.Malformed(in); bad {
 				t.Errorf("Malformed(%q) = %q, want not malformed", in, reason)
 			}
 		})
@@ -118,5 +130,42 @@ func TestStrings(t *testing.T) {
 	}
 	if got := bindsyntax.NArg.String(); got != "narg" {
 		t.Errorf("NArg = %q", got)
+	}
+}
+
+// sqlc does not support the @name shortcut for MySQL, where @name is a user variable, so
+// neither does bisql: a spelling one of them binds and the other does not is the divergence
+// this whole arrangement exists to avoid.
+func TestRulesForMySQLHasNoAtForm(t *testing.T) {
+	if my.AtForm {
+		t.Fatal("MySQL rules must not enable the @name form")
+	}
+	if !pg.AtForm {
+		t.Fatal("PostgreSQL rules must enable the @name form")
+	}
+	for _, in := range []string{"@status", "@row_number"} {
+		if m, ok := my.Recognize(in); ok {
+			t.Errorf("my.Recognize(%q) = %+v, want not recognized", in, m)
+		}
+		if reason, bad := my.Malformed(in); bad {
+			t.Errorf("my.Malformed(%q) = %q, want not malformed", in, reason)
+		}
+	}
+	// The call forms are available for every dialect.
+	if m, ok := my.Recognize("sqlc.arg(status)"); !ok || m.Name != "status" {
+		t.Errorf("my.Recognize(call form) = %+v, %v", m, ok)
+	}
+}
+
+// The two-way syntax recognizes nothing here at all.
+func TestRulesForTwoWayRecognizesNothing(t *testing.T) {
+	r := bindsyntax.RulesFor(bindsyntax.TwoWay, "postgresql")
+	for _, in := range []string{"@status", "sqlc.arg('x')", "sqlc.arg(c.name)"} {
+		if m, ok := r.Recognize(in); ok {
+			t.Errorf("Recognize(%q) = %+v, want not recognized", in, m)
+		}
+		if reason, bad := r.Malformed(in); bad {
+			t.Errorf("Malformed(%q) = %q, want not malformed", in, reason)
+		}
 	}
 }
