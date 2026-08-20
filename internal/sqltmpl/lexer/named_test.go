@@ -73,8 +73,8 @@ func TestNamedBind(t *testing.T) {
 	}
 }
 
-// Under the two-way syntax the same text is opaque, which is what keeps @> and MySQL's
-// @variables usable there.
+// Under the two-way syntax the same text is opaque, so a MySQL user variable — which a
+// bind marker is indistinguishable from — is usable there.
 func TestNamedBindOnlyUnderSqlcNamed(t *testing.T) {
 	for _, src := range []string{"where s = @status", "where s = sqlc.arg('status')"} {
 		for _, tok := range scanAll(t, src) {
