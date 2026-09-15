@@ -1,0 +1,97 @@
+# declscope baseline
+#
+# Violations recorded here are suppressed; new ones are still reported.
+# Regenerate with:
+#
+#     declscope baseline ./...
+#
+# Do not edit by hand. An entry disappears when its violation is fixed, so the
+# diff of a regeneration is the record of what was cleaned up.
+packages:
+  github.com/mpyw/bisql:
+    qualify:
+      bisql:
+        - Expand
+        - ExpandFile
+        - NewParser
+        - Option
+        - Parse
+        - ParseFile
+        - Parser
+        - Statement
+        - Template
+        - WithDialect
+        - WithEvaluator
+        - WithLoader
+        - WithStackedLoader
+        - config
+        - defaultConfig
+        - structScope
+        - toScope
+      include:
+        - ErrNotFound
+        - FSLoader
+        - Loader
+        - LoaderFunc
+        - NewFSLoader
+        - NewRegistryLoader
+        - NewStackedLoader
+        - RegistryLoader
+        - StackedLoader
+        - isNotFound
+  github.com/mpyw/bisql/internal/sqltmpl/parser:
+    boundary:
+      reducer:
+        - bindReducer
+        - bindReducer.expr
+        - bindReducer.loc
+        - bindReducer.token
+        - elseDirectiveReducer
+        - elseDirectiveReducer.loc
+        - elseDirectiveReducer.token
+        - elseifDirectiveReducer
+        - elseifDirectiveReducer.expr
+        - elseifDirectiveReducer.loc
+        - elseifDirectiveReducer.token
+        - forBlockReducer
+        - forBlockReducer.loc
+        - forDirectiveReducer
+        - forDirectiveReducer.expr
+        - forDirectiveReducer.id
+        - forDirectiveReducer.loc
+        - forDirectiveReducer.token
+        - ifBlockReducer
+        - ifBlockReducer.loc
+        - ifDirectiveReducer
+        - ifDirectiveReducer.expr
+        - ifDirectiveReducer.loc
+        - ifDirectiveReducer.token
+        - isBlock
+        - isIfBlock
+        - literalReducer
+        - literalReducer.expr
+        - literalReducer.loc
+        - literalReducer.token
+        - reducer
+        - reducer.add
+        - reducer.reduce
+        - statementReducer
+    qualify:
+      parser:
+        - Parse
+        - inKeyword
+        - strip
+      reducer:
+        - block
+        - isBlock
+        - isIfBlock
+  github.com/mpyw/bisql/internal/sqltmpl/render:
+    boundary:
+      helpers:
+        - asIterable
+    qualify:
+      helpers:
+        - asIterable
+      render:
+        - Config
+        - Result
