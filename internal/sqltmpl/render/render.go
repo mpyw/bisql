@@ -1,3 +1,5 @@
+//declscope:core
+
 // Package render evaluates the template tree into (SQL, args). Under the explicit model it
 // removes nothing implicitly: text is emitted verbatim, directives are evaluated in place,
 // and the author anchors clauses (1=1 / trailing id) so no connector is ever left dangling.

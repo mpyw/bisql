@@ -11,4 +11,6 @@
 // whitespace normalization — so the author anchors every dynamic fragment (a 1 = 1 predicate, a
 // leading connector) to keep the rendered SQL valid. See the README for the directive reference
 // and authoring rules.
+//
+//declscope:core
 package bisql

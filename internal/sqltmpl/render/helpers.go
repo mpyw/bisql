@@ -1,3 +1,8 @@
+// asIterable is render.go's, kept here only to keep that file readable.
+// One function is not a unit, so this file joins the core alongside it.
+//
+//declscope:core
+
 package render
 
 import "reflect"
