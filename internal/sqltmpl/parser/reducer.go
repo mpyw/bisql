@@ -1,3 +1,5 @@
+//declscope:namespace parser
+
 package parser
 
 import (
