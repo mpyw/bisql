@@ -11,6 +11,12 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # id-token: write is what the coverage upload authenticates with, in
+    # place of a stored token. A job's permissions replace the workflow's
+    # rather than add to them, so contents: read is restated here.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
@@ -24,9 +30,9 @@ jobs:
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.out
           fail_ci_if_error: false
+          use_oidc: true
 
   # The example (testdata/example) is a separate module with its own dependencies. It is checked
   # but deliberately excluded from coverage, so it runs as its own job.
