@@ -23,7 +23,7 @@ jobs:
         with:
           cache: true
       # Installs the pinned toolchain (go, golangci-lint, deadcode) from mise.toml, then
-      # runs the full gate: fmt, build, vet, lint, deadcode, test -race.
+      # runs the full gate: fmt, build, vet, lint, deadcode, shrink, declscope, test -race.
       - run: mise run check
       # Coverage: one holistic profile for the module (coverage.out).
       - run: mise run cover
