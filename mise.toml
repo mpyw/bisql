@@ -1,5 +1,5 @@
 [tools]
-"github:mpyw/declscope" = "0.12.0"
+"github:mpyw/declscope" = "0.13.0"
 go = "1.25.3"
 golangci-lint = "2.12.2"
 "go:golang.org/x/tools/cmd/deadcode" = "latest"
@@ -35,12 +35,20 @@ run = 'go test -race ./...'
 description = "Write a holistic coverage profile (coverage.out)"
 run = 'go test -coverpkg=./... -covermode=atomic -coverprofile=coverage.out ./...'
 
+# shrink goes first: a declaration it unexports becomes private to its file's namespace, and the
+# analyzer then reports every other file that uses it. Settle shrink, then the analyzer.
+# GOWORK=off because shrink loads one main module, and go.work joins testdata/example as a second.
+[tasks.shrink]
+description = "Report exported declarations of internal/ that nothing outside their package uses"
+run = 'GOWORK=off declscope shrink ./...'
+
 [tasks.declscope]
 description = "File-level scope check (github.com/mpyw/declscope)"
+depends = ["shrink"]
 run = 'declscope ./...'
 
 [tasks.check]
-description = "Full gate: fmt, build, vet, lint, deadcode, declscope, test"
+description = "Full gate: fmt, build, vet, lint, deadcode, shrink, declscope, test"
 depends = ["fmt", "build", "vet", "lint", "deadcode", "declscope", "test"]
 
 # The example is a separate module (testdata/example, joined via go.work) with its own deps
