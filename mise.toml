@@ -1,5 +1,5 @@
 [tools]
-"github:mpyw/declscope" = "0.13.0"
+"github:mpyw/declscope" = "0.13.1"
 go = "1.25.3"
 golangci-lint = "2.12.2"
 "go:golang.org/x/tools/cmd/deadcode" = "latest"
