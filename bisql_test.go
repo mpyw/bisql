@@ -662,11 +662,9 @@ func TestTemplateConcurrentBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
-	for g := 0; g < 16; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 200; i++ {
+	for range 16 {
+		wg.Go(func() {
+			for range 200 {
 				stmt, err := tmpl.Build(map[string]any{"name": "Alice", "depts": []any{1}})
 				if err != nil {
 					t.Errorf("build: %v", err)
@@ -677,7 +675,7 @@ func TestTemplateConcurrentBuild(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

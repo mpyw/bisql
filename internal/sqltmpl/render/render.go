@@ -7,6 +7,7 @@ package render
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/mpyw/bisql/dialect"
@@ -35,9 +36,7 @@ type Config struct {
 func Render(n ast.Node, scope expr.Scope, cfg Config) (Result, error) {
 	// Copy the scope so for blocks can shadow variables without leaking to the caller.
 	sc := make(expr.Scope, len(scope))
-	for k, v := range scope {
-		sc[k] = v
-	}
+	maps.Copy(sc, scope)
 	r := &renderer{ev: cfg.Evaluator, ph: cfg.Placeholder, lit: cfg.Literal, scope: sc}
 	if err := r.visit(n); err != nil {
 		return Result{}, err

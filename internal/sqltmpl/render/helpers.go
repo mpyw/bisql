@@ -22,7 +22,7 @@ func asIterable(v any) ([]any, bool) {
 	case reflect.Slice, reflect.Array:
 		n := rv.Len()
 		out := make([]any, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			out[i] = rv.Index(i).Interface()
 		}
 		return out, true

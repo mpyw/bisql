@@ -211,7 +211,7 @@ func TestEval_errors(t *testing.T) {
 
 func TestEval_cacheReuse(t *testing.T) {
 	d := &exprlang.Default{}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		v, err := d.Eval("a + 1", expr.Scope{"a": i})
 		if err != nil {
 			t.Fatalf("Eval: %v", err)
@@ -232,11 +232,11 @@ func TestEval_concurrentSameExpression(t *testing.T) {
 	const goroutines = 32
 	var wg sync.WaitGroup
 	errs := make(chan error, goroutines)
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		wg.Add(1)
 		go func(base int) {
 			defer wg.Done()
-			for i := 0; i < 200; i++ {
+			for range 200 {
 				v, err := d.Eval("a + 1", expr.Scope{"a": base})
 				if err != nil {
 					errs <- fmt.Errorf("Eval: %w", err)

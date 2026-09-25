@@ -283,7 +283,7 @@ func TestLexer_IllegalIsIdempotent(t *testing.T) {
 	if firstErr == nil {
 		t.Fatalf("expected Err() after Illegal")
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if k := l.Next(); k != token.Illegal {
 			t.Errorf("repeat Next[%d]: got %d want Illegal", i, k)
 		}
