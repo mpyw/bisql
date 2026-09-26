@@ -1,6 +1,6 @@
-# CLAUDE.md — bisql development guide
+# Repository instructions — bisql
 
-Guidance for Claude Code / contributors working in this repository.
+Guidance for contributors and coding agents working in this repository.
 
 ## What this is
 
