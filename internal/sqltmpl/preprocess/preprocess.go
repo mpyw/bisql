@@ -10,8 +10,8 @@ import (
 	"strings"
 )
 
-// DefaultMaxDepth bounds recursive expansion (a backstop beyond cycle detection).
-const DefaultMaxDepth = 50
+// defaultMaxDepth bounds recursive expansion (a backstop beyond cycle detection).
+const defaultMaxDepth = 50
 
 // Resolver returns the raw text of a named fragment, or an error if unknown.
 type Resolver func(name string) (string, error)
@@ -61,8 +61,8 @@ func expand(src string, resolve Resolver, active map[string]bool, depth int) (st
 			if active[name] {
 				return "", fmt.Errorf("bisql/preprocess: cyclic @include reference %q", name)
 			}
-			if depth >= DefaultMaxDepth {
-				return "", fmt.Errorf("bisql/preprocess: @include depth exceeded %d", DefaultMaxDepth)
+			if depth >= defaultMaxDepth {
+				return "", fmt.Errorf("bisql/preprocess: @include depth exceeded %d", defaultMaxDepth)
 			}
 			frag, err := resolve(name)
 			if err != nil {
