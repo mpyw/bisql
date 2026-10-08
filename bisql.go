@@ -71,10 +71,6 @@ type config struct {
 	loader    Loader
 }
 
-func defaultConfig() config {
-	return config{dialect: dialect.MySQL, evaluator: &exprlang.Default{}}
-}
-
 // WithDialect sets the dialect used for placeholder generation (default: MySQL).
 func WithDialect(d dialect.Dialect) Option { return func(c *config) { c.dialect = d } }
 
@@ -91,6 +87,10 @@ func WithLoader(l Loader) Option { return func(c *config) { c.loader = l } }
 // aborts. It is shorthand for WithLoader(NewStackedLoader(loaders...)).
 func WithStackedLoader(loaders ...Loader) Option {
 	return WithLoader(NewStackedLoader(loaders...))
+}
+
+func defaultConfig() config {
+	return config{dialect: dialect.MySQL, evaluator: &exprlang.Default{}}
 }
 
 // resolver returns the preprocess resolver for c's loader (or one that rejects @include).
